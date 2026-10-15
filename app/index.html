@@ -109,7 +109,7 @@ td .x:hover { color: var(--bad); }
 .calc output b { font-family: var(--f-mono); font-weight: 500; }
 input[type=file] { display: none; }
 [hidden] { display: none !important; }
-#view-cs, #view-odds { display: flex; flex-direction: column; gap: 14px; }
+#view-cs, #view-odds, #view-q { display: flex; flex-direction: column; gap: 14px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tabs button { border: 0; background: transparent; padding: 8px 14px 9px; font-family: var(--f-display); font-size: 1.1rem; font-weight: 600;
   text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
@@ -148,6 +148,25 @@ input[type=file] { display: none; }
 .toplist .r b { font-family: var(--f-mono); font-weight: 500; }
 .toplist .r b .h { color: var(--home); } .toplist .r b .a { color: var(--away); }
 .toplist .r em { font-style: normal; font-family: var(--f-mono); font-size: .85rem; }
+.qbox { display: flex; gap: 8px; flex-wrap: wrap; }
+.qbox input { flex: 1 1 280px; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--sunk); color: var(--fg); font: inherit; font-size: .95rem; }
+.qgrid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; align-items: start; }
+@media (max-width: 860px) { .qgrid { grid-template-columns: minmax(0, 1fr); } }
+.cond { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+.cond:first-child { border-top: 0; }
+.cond select, .cond input { font: inherit; font-size: .85rem; padding: 5px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--fg); }
+.cond input { width: 8ch; font-family: var(--f-mono); text-align: right; }
+.cond .and { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); width: 3.2em; }
+.cond .x { border: 0; background: transparent; color: var(--muted); font-size: 1rem; padding: 0 6px; }
+.cond .x:hover { color: var(--bad); }
+.qres { display: flex; flex-direction: column; gap: 6px; }
+.qres b { font-family: var(--f-display); font-size: 3rem; font-weight: 700; line-height: 1; color: var(--accent); }
+.qres .fair { font-family: var(--f-mono); font-size: .95rem; }
+.qres small { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.qres p { margin: 0; font-size: .8rem; color: var(--muted); }
+.qexamples { display: flex; gap: 6px; flex-wrap: wrap; }
+.qexamples button { border: 1px dashed var(--line); background: transparent; border-radius: 999px; padding: 3px 10px; font-size: .78rem; color: var(--muted); }
+.qexamples button:hover { color: var(--fg); border-color: var(--muted); }
 </style>
 
 <div class="wrap">
@@ -163,6 +182,7 @@ input[type=file] { display: none; }
   <nav class="tabs" role="tablist" aria-label="Rodinys">
     <button type="button" role="tab" id="tab-odds" aria-controls="view-odds" aria-selected="true">Koeficientai</button>
     <button type="button" role="tab" id="tab-cs" aria-controls="view-cs" aria-selected="false">Tikslus rezultatas</button>
+    <button type="button" role="tab" id="tab-q" aria-controls="view-q" aria-selected="false">Sąlygos</button>
   </nav>
 
   <section class="summary" id="summary" aria-live="polite"></section>
@@ -185,6 +205,30 @@ input[type=file] { display: none; }
       </div>
     </div>
     <p class="note">Rezultatų tikimybės apskaičiuotos iš handikapo ir taškų sumos: abiejų komandų taškams pritaikytas dvimatis normalusis skirstinys, o ryšys tarp jų įvertintas iš abiejų rinkų σ. Jei įvestos tik komandų taškų rinkos, naudojamos jos. Lygiosios krepšinyje baigiasi pratęsimu, todėl jos sąraše nerodomos.</p>
+  </section>
+
+  <section id="view-q" role="tabpanel" aria-labelledby="tab-q" hidden>
+    <div class="qgrid">
+      <div class="panel">
+        <div class="phead"><h2>Kokia tikimybė, kad…</h2></div>
+        <form class="qbox" id="qForm">
+          <input id="qText" autocomplete="off" placeholder="pvz.: abi komandos įmes daugiau nei 75 taškų ir laimės Partizan" aria-label="Sąlyga žodžiais">
+          <button class="btn primary" id="qGo" type="submit">Skaičiuoti</button>
+        </form>
+        <div class="qexamples" id="qEx"></div>
+        <span class="status" id="qStatus"></span>
+        <div id="conds"></div>
+        <div class="pacts"><button class="btn small" type="button" id="qAdd">+ Sąlyga</button>
+          <button class="btn small" type="button" id="qClear">Išvalyti</button></div>
+      </div>
+      <div class="panel qres" aria-live="polite">
+        <small>Tikimybė, kad visos sąlygos išsipildys</small>
+        <b class="num" id="qP">–</b>
+        <span class="fair" id="qFair"></span>
+        <p id="qNote"></p>
+      </div>
+    </div>
+    <p class="note">Įrašykite sąlygą žodžiais ir Claude ją paverčia sąlygų sąrašu. Sąlygas galite pataisyti ar pridėti ranka. Visos sąlygos turi išsipildyti kartu. Skaičiuojama iš to paties modelio kaip tikslaus rezultato lenta, pagrindinio laiko rezultatui: lygiosios (po kurių būna pratęsimas) nelaikomos nė vienos komandos pergale.</p>
   </section>
 
   <div id="view-odds" role="tabpanel" aria-labelledby="tab-odds">
@@ -377,15 +421,16 @@ function renderSummary() {
         const r2 = (F.tot.sigma ** 2 - F.home.sigma ** 2 - F.away.sigma ** 2) / (2 * F.home.sigma * F.away.sigma);
         alt = ` · pagal komandų rinkas ${r2.toFixed(3)}`;
       }
-      cards.push(`<div class="kpi"><small>Koreliacija ρ (namai–svečiai)</small><b class="num">${SM.rho.toFixed(3)}</b><span>iš σ sumos ${F.tot.sigma.toFixed(1)} ir σ skirtumo ${F.hcp.sigma.toFixed(1)}${alt}</span></div>`);
+      cards.push(`<div class="kpi"><small>Koreliacija <span style="text-transform:none">ρ</span> (namai–svečiai)</small><b class="num">${SM.rho.toFixed(3)}</b><span>iš σ sumos ${F.tot.sigma.toFixed(1)} ir σ skirtumo ${F.hcp.sigma.toFixed(1)}${alt}</span></div>`);
     } else {
-      cards.push(`<div class="kpi"><small>Koreliacija ρ (namai–svečiai)</small><b class="num">0.000</b><span>laikoma 0: įvertinti reikia handikapo ir taškų sumos</span></div>`);
+      cards.push(`<div class="kpi"><small>Koreliacija <span style="text-transform:none">ρ</span> (namai–svečiai)</small><b class="num">0.000</b><span>laikoma 0: įvertinti reikia handikapo ir taškų sumos</span></div>`);
     }
   } else {
     if (F.home) cards.push(`<div class="kpi"><small>${esc(homeN())} taškai</small><b class="num">${F.home.mu.toFixed(1)}</b><span>σ ${F.home.sigma.toFixed(1)}</span></div>`);
     if (F.away) cards.push(`<div class="kpi"><small>${esc(awayN())} taškai</small><b class="num">${F.away.mu.toFixed(1)}</b><span>σ ${F.away.sigma.toFixed(1)}</span></div>`);
   }
   renderCS(F);
+  renderQ(F);
   $("summary").innerHTML = cards.join("") || `<div class="kpi"><small>Santrauka</small><b>–</b><span>Įkelkite bent vienos rinkos koeficientus.</span></div>`;
 }
 
@@ -523,21 +568,113 @@ function centerTop() {
   box.scrollLeft = td.offsetLeft - box.clientWidth / 2 + td.offsetWidth / 2;
   box.scrollTop = td.offsetTop - box.clientHeight / 2 + td.offsetHeight / 2;
 }
+// ---------- conditions ----------
+const VARS = [["home", h => h], ["away", (h, a) => a], ["total", (h, a) => h + a], ["diff", (h, a) => h - a]];
+const OPS = { ">": (x, y) => x > y, ">=": (x, y) => x >= y, "<": (x, y) => x < y, "<=": (x, y) => x <= y, "=": (x, y) => x === y };
+const OPL = { ">": "daugiau nei", ">=": "bent", "<": "mažiau nei", "<=": "ne daugiau nei", "=": "lygiai" };
+const varLabel = v => ({ home: `${homeN()} taškai`, away: `${awayN()} taškai`, total: "Taškų suma", diff: `Skirtumas (${homeN()} − ${awayN()})` })[v];
+let textSample = null, qCtl = null;
+state.conds ||= [];
+
+function gridCells(M) {
+  const rho = Math.max(-0.95, Math.min(0.95, M.rho)), cells = []; let tot = 0;
+  for (let h = Math.max(0, Math.floor(M.mh - 5 * M.sh)); h <= Math.ceil(M.mh + 5 * M.sh); h++)
+    for (let a = Math.max(0, Math.floor(M.ma - 5 * M.sa)); a <= Math.ceil(M.ma + 5 * M.sa); a++) {
+      const x = (h - M.mh) / M.sh, y = (a - M.ma) / M.sa;
+      const d = Math.exp(-(x * x - 2 * rho * x * y + y * y) / (2 * (1 - rho * rho)));
+      cells.push([h, a, d]); tot += d;
+    }
+  cells.forEach(c => c[2] /= tot);
+  return cells;
+}
+function condsHTML() {
+  if (!state.conds.length) return `<p class="note">Sąlygų dar nėra. Įrašykite sąlygą viršuje arba spauskite „+ Sąlyga“.</p>`;
+  return state.conds.map((c, i) => `<div class="cond" data-ci="${i}"><span class="and">${i ? "ir" : ""}</span>
+    <select data-k="v" aria-label="Kas">${VARS.map(([v]) => `<option value="${v}"${c.v === v ? " selected" : ""}>${esc(varLabel(v))}</option>`).join("")}</select>
+    <select data-k="op" aria-label="Palyginimas">${Object.keys(OPS).map(o => `<option value="${o}"${c.op === o ? " selected" : ""}>${OPL[o]}</option>`).join("")}</select>
+    <input data-k="x" inputmode="decimal" value="${esc(c.x)}" aria-label="Skaičius">
+    <button class="x" type="button" data-cdel="${i}" aria-label="Pašalinti sąlygą">×</button></div>`).join("");
+}
+function renderConds() { $("conds").innerHTML = condsHTML(); }
+function renderQ(F) {
+  F ||= Object.fromEntries(MARKETS.map(m => [m.key, fit(m, state.rows[m.key])]));
+  const M = scoreModel(F);
+  const conds = state.conds.map(c => ({ f: VARS.find(v => v[0] === c.v)?.[1], op: OPS[c.op], x: parseFloat(String(c.x).replace(",", ".")) }))
+    .filter(c => c.f && c.op && isFinite(c.x));
+  if (!M) { $("qP").textContent = "–"; $("qFair").textContent = ""; $("qNote").textContent = "Reikia handikapo ir taškų sumos koeficientų skiltyje „Koeficientai“."; return; }
+  if (!conds.length) { $("qP").textContent = "–"; $("qFair").textContent = ""; $("qNote").textContent = "Pridėkite bent vieną sąlygą."; return; }
+  let p = 0;
+  for (const [h, a, w] of gridCells(M)) if (conds.every(c => c.op(c.f(h, a), c.x))) p += w;
+  $("qP").textContent = pct(p);
+  $("qFair").textContent = p > 0 ? `Teisingas koeficientas ${(1 / p).toFixed(2)}` : "";
+  const skipped = state.conds.length - conds.length;
+  $("qNote").textContent = `Tikėtinas rezultatas ${M.mh.toFixed(1)} : ${M.ma.toFixed(1)}, ρ ${M.rho.toFixed(3)}.` + (skipped ? ` ${skipped} neužpildytos sąlygos praleistos.` : "");
+}
+function renderExamples() {
+  const ex = [`abi komandos įmes daugiau nei 75 taškų ir laimės ${awayN()}`, `${homeN()} laimės daugiau nei 10 taškų`, `bendra suma mažiau nei 160 ir laimės ${homeN()}`];
+  $("qEx").innerHTML = textSample ? ex.map(t => `<button type="button" data-ex="${esc(t)}">${esc(t)}</button>`).join("") : "";
+}
+async function parseQuery(text) {
+  if (!textSample) return;
+  qCtl?.abort(); qCtl = new AbortController();
+  $("qGo").disabled = true; $("qStatus").className = "status"; $("qStatus").textContent = "Claude verčia sąlygą…";
+  const prompt = `Convert a Lithuanian (or English) basketball betting question into a list of conditions on the final score. All conditions are combined with AND.
+Home team: "${homeN()}". Away team: "${awayN()}".
+Variables: "home" = home team points, "away" = away team points, "total" = home + away, "diff" = home − away.
+Operators: ">", ">=", "<", "<=", "=". "x" is a number.
+Rules: "daugiau nei N" / "more than N" -> ">" N; "bent N" / "at least N" / "N ir daugiau" -> ">=" N; "mažiau nei N" -> "<" N; "ne daugiau nei N" -> "<=" N.
+"abi komandos" (both teams) -> one condition for home AND one for away. "<team> laimės" (wins) -> diff ">" 0 for home, diff "<" 0 for away.
+"<home> laimės daugiau nei N taškų" -> diff ">" N; "<away> laimės daugiau nei N taškų" -> diff "<" -N. Match team names loosely (spelling, case, endings).
+If the question needs OR, or cannot be expressed this way, return an empty list and explain briefly in Lithuanian in "problem".
+Reply with only JSON: {"conditions": [{"v": "home", "op": ">", "x": 75}], "problem": null}
+Question: ${text}`;
+  try {
+    const res = await textSample.json(prompt, { modelTier: "quick", signal: qCtl.signal });
+    const list = (Array.isArray(res?.conditions) ? res.conditions : [])
+      .filter(c => VARS.some(v => v[0] === c.v) && OPS[c.op] && isFinite(Number(c.x)))
+      .map(c => ({ v: c.v, op: c.op, x: String(Number(c.x)) }));
+    if (!list.length) { $("qStatus").className = "status err"; $("qStatus").textContent = res?.problem || "Nepavyko suprasti sąlygos. Pabandykite paprasčiau arba sudėkite sąlygas ranka."; return; }
+    state.conds = list; save(); renderConds(); renderQ();
+    $("qStatus").className = "status ok"; $("qStatus").textContent = "Patikrinkite sąlygas žemiau.";
+  } catch (e) {
+    if (e?.code === "cancelled") return;
+    $("qStatus").className = "status err";
+    $("qStatus").textContent = ERR[e?.code] || "Nepavyko. Bandykite dar kartą arba sudėkite sąlygas ranka.";
+    if (e?.code === "not_granted" || e?.code === "sampling_disabled") noTextSample();
+  } finally { $("qGo").disabled = false; }
+}
+function noTextSample() {
+  textSample = null; $("qForm").hidden = true; renderExamples();
+  $("qStatus").className = "status"; $("qStatus").textContent = "Sąlygos žodžiais veikia tik atidarius programą Claude. Sudėkite sąlygas ranka mygtuku „+ Sąlyga“.";
+}
+$("qForm").addEventListener("submit", e => { e.preventDefault(); const t = $("qText").value.trim(); state.q = t; save(); if (t) parseQuery(t); });
+$("qEx").addEventListener("click", e => { const b = e.target.closest("[data-ex]"); if (!b) return; $("qText").value = b.dataset.ex; state.q = b.dataset.ex; save(); parseQuery(b.dataset.ex); });
+$("qAdd").addEventListener("click", () => { state.conds.push({ v: "total", op: ">", x: "" }); save(); renderConds(); renderQ(); $("conds").querySelector(".cond:last-child input")?.focus(); });
+$("qClear").addEventListener("click", () => { state.conds = []; state.q = ""; $("qText").value = ""; $("qStatus").textContent = ""; save(); renderConds(); renderQ(); });
+$("conds").addEventListener("click", e => { const b = e.target.closest("[data-cdel]"); if (!b) return; state.conds.splice(+b.dataset.cdel, 1); save(); renderConds(); renderQ(); });
+$("conds").addEventListener("input", e => { const row = e.target.closest("[data-ci]"); if (!row || !e.target.dataset.k) return;
+  state.conds[+row.dataset.ci][e.target.dataset.k] = e.target.value; save(); renderQ(); });
+$("qText").value = state.q || "";
+renderConds();
+$("qForm").hidden = true; $("qStatus").textContent = "";
+
 function setTab(t) {
   state.tab = t; save();
-  $("tab-odds").setAttribute("aria-selected", t === "odds"); $("tab-cs").setAttribute("aria-selected", t === "cs");
-  $("view-odds").hidden = t !== "odds"; $("view-cs").hidden = t !== "cs";
+  $("tab-odds").setAttribute("aria-selected", t === "odds"); $("tab-cs").setAttribute("aria-selected", t === "cs"); $("tab-q").setAttribute("aria-selected", t === "q");
+  $("view-odds").hidden = t !== "odds"; $("view-cs").hidden = t !== "cs"; $("view-q").hidden = t !== "q";
+  if (t === "q") { renderConds(); renderExamples(); }
   if (t === "cs") centerTop();
 }
 $("tab-odds").addEventListener("click", () => setTab("odds"));
 $("tab-cs").addEventListener("click", () => setTab("cs"));
+$("tab-q").addEventListener("click", () => setTab("q"));
 $("csStep").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.csStep = +b.dataset.step; save(); renderSummary(); });
 
 // ---------- events ----------
 $("markets").innerHTML = MARKETS.map(panelHTML).join("");
 $("homeName").value = state.home || ""; $("awayName").value = state.away || "";
 MARKETS.forEach(m => { renderRows(m.key); renderThumbs(m.key); });
-setTab(state.tab === "cs" ? "cs" : "odds");
+setTab(["cs", "q"].includes(state.tab) ? state.tab : "odds");
 
 $("homeName").addEventListener("input", e => { state.home = e.target.value.trim(); save(); updateComputed("hcp"); });
 $("awayName").addEventListener("input", e => { state.away = e.target.value.trim(); save(); updateComputed("hcp"); });
@@ -602,6 +739,7 @@ $("resetAll").addEventListener("click", () => {
 document.querySelectorAll(".scan, #scanAll").forEach(b => b.disabled = true);
 (async () => {
   const s = window.claude?.use ? await window.claude.use("sample") : null;
+  if (s) { textSample = s; $("qForm").hidden = false; renderExamples(); } else noTextSample();
   if (!s) { disableScan("Nuotraukų nuskaitymas veikia tik atidarius programą Claude."); return; }
   const lim = await s.limits().catch(() => null);
   if (!lim?.images) { disableScan("Šiame lange nuotraukų nuskaitymas nepasiekiamas."); return; }
