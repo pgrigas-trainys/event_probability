@@ -246,6 +246,8 @@ input[type=file] { display: none; }
   <div id="view-odds" role="tabpanel" aria-labelledby="tab-odds">
   <div class="pacts">
     <button class="btn primary" id="scanAll" type="button">Nuskaityti visas nuotraukas</button>
+    <button class="btn" id="csvAll" type="button">Įkelti CSV</button>
+    <input type="file" accept=".csv,text/csv,text/plain" id="csvAllFile">
     <button class="btn" id="resetAll" type="button">Naujos rungtynės</button>
     <p class="note" id="globalNote">Spustelėkite rinką, tada įklijuokite ekrano nuotrauką (Ctrl+V), nutempkite ją arba pasirinkite failą.</p>
   </div>
@@ -545,8 +547,8 @@ function panelHTML(m) {
     <div class="phead"><h2>${m.title}</h2><span class="fit" id="fit-${m.key}"></span></div>
     <div class="drop" tabindex="0" role="button" aria-label="Pridėti nuotrauką: ${m.title}" data-drop="${m.key}">
       <div id="thumbs-${m.key}" style="display:contents"></div>
-      <span class="hint"><b>Įklijuokite</b> (Ctrl+V), nutempkite arba spustelėkite, kad pasirinktumėte nuotrauką</span>
-      <input type="file" accept="image/*" multiple id="file-${m.key}">
+      <span class="hint"><b>Įklijuokite</b> nuotrauką (Ctrl+V), nutempkite nuotrauką ar <b>CSV</b> failą arba spustelėkite, kad pasirinktumėte</span>
+      <input type="file" accept="image/*,.csv,text/csv,text/plain" multiple id="file-${m.key}">
     </div>
     <div class="pacts">
       <button class="btn small scan" type="button" data-scan="${m.key}">Nuskaityti</button>
@@ -659,10 +661,37 @@ function setActive(key) {
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.dataset.m === key));
 }
 
+const isCSV = f => f && (/\.(csv|txt|tsv)$/i.test(f.name || "") || /^text\/(csv|plain|tab-separated-values)/.test(f.type || ""));
 function addImages(key, files) {
-  for (const f of files) if (f && f.type && f.type.startsWith("image/")) images[key].push({ file: f, url: URL.createObjectURL(f) });
+  files = [...files];
+  const csvs = files.filter(isCSV);
+  if (csvs.length) { csvs.forEach(f => loadCSV(f, key)); }
+  const imgs = files.filter(f => f && f.type && f.type.startsWith("image/"));
+  if (!imgs.length) return;
+  for (const f of imgs) images[key].push({ file: f, url: URL.createObjectURL(f) });
   renderThumbs(key); setActive(key);
-  status(key, images[key].length ? `${images[key].length} nuotr. paruošta. Spauskite „Nuskaityti“.` : "");
+  status(key, `${images[key].length} nuotr. paruošta. Spauskite „Nuskaityti“.`);
+}
+// CSV: jei faile yra stulpelis „market“/„rinka“, eilutės paskirstomos rinkoms, kitaip dedamos į pasirinktą rinką.
+async function loadCSV(file, key) {
+  let res;
+  try { res = parseOddsCSV(await file.text()); } catch (e) { res = { count: 0 }; }
+  const label = m => MARKETS.find(x => x.key === m).title;
+  if (!res.count) {
+    const msg = `${file.name}: nerasta eilučių su linija ir dviem koeficientais.`;
+    if (key) status(key, msg, "err"); else { $("globalNote").textContent = msg; $("globalNote").classList.add("warn"); }
+    return;
+  }
+  const done = [];
+  for (const [m, rows] of Object.entries(res.byMarket)) { state.rows[m] = rows; renderRows(m); status(m, `Įkelta iš CSV: ${rows.length} eil.`, "ok"); done.push(`${label(m)} ${rows.length}`); }
+  if (res.unassigned.length) {
+    const m = key || active;
+    state.rows[m] = res.unassigned; renderRows(m); setActive(m);
+    status(m, `Įkelta iš CSV: ${res.unassigned.length} eil.`, "ok"); done.push(`${label(m)} ${res.unassigned.length}`);
+  }
+  save();
+  $("globalNote").classList.remove("warn");
+  $("globalNote").textContent = `${file.name}: įkelta ${done.join(", ")} eil.`;
 }
 function status(key, text, cls = "") { const el = $("st-" + key); el.textContent = text; el.className = "status " + cls; }
 
@@ -711,10 +740,13 @@ Reply with only JSON in this shape: {"home": "Fenerbahce", "away": "Partizan", "
     if (e && (e.code === "not_granted" || e.code === "sampling_disabled")) disableScan(ERR[e.code]);
   } finally { btn.disabled = false; }
 }
+$("csvAll").addEventListener("click", () => $("csvAllFile").click());
+$("csvAllFile").addEventListener("change", e => { [...e.target.files].forEach(f => loadCSV(f, null)); e.target.value = ""; });
+
 function disableScan(msg) {
   sample = null;
   document.querySelectorAll(".scan, #scanAll").forEach(b => b.hidden = true);
-  $("globalNote").textContent = msg + " Koeficientus galite įvesti ranka mygtuku „+ Eilutė“.";
+  $("globalNote").textContent = msg + " Koeficientus galite įkelti iš CSV failo arba įvesti ranka mygtuku „+ Eilutė“.";
   $("globalNote").classList.add("warn");
 }
 

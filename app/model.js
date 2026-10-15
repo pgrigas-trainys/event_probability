@@ -82,6 +82,45 @@ function conditionProbability(M, conds) {
   return p;
 }
 
+// ---------- CSV įkėlimas ----------
+// Kiekvienoje eilutėje imami pirmi trys skaitiniai stulpeliai: linija, koeficientas A, koeficientas B
+// (handikapui A = namai, B = svečiai; sumoms A = daugiau, B = mažiau).
+// Jei yra stulpelis „market“/„rinka“, eilutės paskirstomos rinkoms pagal jo reikšmę.
+// Skirtukas aptinkamas automatiškai (, ; arba tab); su ; ir tab leidžiamas dešimtainis kablelis.
+const MARKET_ALIASES = [
+  ["hcp", /^(hcp|handicap|handikap|handikapas|spread|fora)/i],
+  ["tot", /^(tot|total|totals|suma|taškų suma|tasku suma|over|o\/u)/i],
+  ["home", /^(home|namai|namų|namu|namų komandos|team1|1)/i],
+  ["away", /^(away|svečiai|sveciai|svečių|veciu|team2|2)/i],
+];
+function parseOddsCSV(text) {
+  const lines = String(text).replace(/^﻿/, "").split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return { byMarket: {}, unassigned: [], count: 0 };
+  const head = lines[0];
+  const delim = [["\t", (head.match(/\t/g) || []).length], [";", (head.match(/;/g) || []).length], [",", (head.match(/,/g) || []).length]]
+    .sort((x, y) => y[1] - x[1])[0][0];
+  const split = l => l.split(delim).map(c => c.trim().replace(/^"(.*)"$/, "$1").trim());
+  const num = c => { const v = delim === "," ? c : c.replace(",", "."); return /^[-+]?\d+(\.\d+)?$/.test(v) ? Number(v) : NaN; };
+  let marketCol = -1, start = 0;
+  const first = split(head);
+  if (first.filter(c => isFinite(num(c))).length < 3) {
+    start = 1;
+    marketCol = first.findIndex(c => /^(market|rinka|turgus|tipas|type)$/i.test(c));
+  }
+  const byMarket = {}, unassigned = [];
+  for (const line of lines.slice(start)) {
+    const cells = split(line);
+    const nums = cells.filter((c, i) => i !== marketCol).map(num).filter(Number.isFinite);
+    if (nums.length < 3) continue;
+    const row = { l: String(nums[0]), a: nums[1].toFixed(2), b: nums[2].toFixed(2) };
+    const mv = marketCol >= 0 ? cells[marketCol] || "" : "";
+    const key = mv && MARKET_ALIASES.find(([, re]) => re.test(mv))?.[0];
+    if (key) (byMarket[key] ||= []).push(row); else unassigned.push(row);
+  }
+  const count = unassigned.length + Object.values(byMarket).reduce((s, r) => s + r.length, 0);
+  return { byMarket, unassigned, count };
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { erf, Phi, PhiInv, rowCalc, fit, pOver, scoreModel, gridCells, conditionProbability, VARS, OPS };
+  module.exports = { erf, Phi, PhiInv, rowCalc, fit, pOver, scoreModel, gridCells, conditionProbability, VARS, OPS, parseOddsCSV };
 }

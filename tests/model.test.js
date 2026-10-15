@@ -47,4 +47,21 @@ assert.ok(pBoth < pAway, "papildomos sąlygos mažina tikimybę");
 near(pBoth, 0.1018, 2e-3, "abi > 75 ir laimi Partizan");
 assert.throws(() => M.conditionProbability(SM, [{ v: "nėra", op: ">", x: 1 }]));
 
+// CSV įkėlimas
+const fs = require("node:fs");
+const path = require("node:path");
+const own = M.parseOddsCSV(fs.readFileSync(path.join(__dirname, "../data/fenerbahce_partizan_betsson_handicap.csv"), "utf8"));
+assert.equal(own.count, 8, "esamas handikapo failas");
+assert.deepEqual(own.byMarket.hcp?.[3], { l: "-11.5", a: "1.95", b: "1.85" }, "market=Handicap -> hcp");
+
+const semi = M.parseOddsCSV("Linija;Daugiau;Mažiau\n165,5;1,90;1,90\n167,5;2,05;1,75\n");
+assert.equal(semi.unassigned.length, 2, "kabliataškis ir dešimtainis kablelis");
+assert.deepEqual(semi.unassigned[0], { l: "165.5", a: "1.90", b: "1.90" });
+
+const combo = M.parseOddsCSV(["rinka,linija,a,b", "handikapas,-11.5,1.95,1.85", "taškų suma,165.5,1.90,1.90",
+  "namai,88.5,1.85,1.95", "svečiai,77.5,1.90,1.90", "tekstas be skaičių"].join("\n"));
+assert.equal(combo.byMarket.hcp.length, 1); assert.equal(combo.byMarket.tot.length, 1);
+assert.equal(combo.byMarket.home.length, 1); assert.equal(combo.byMarket.away.length, 1);
+assert.equal(combo.count, 4, "eilutės be skaičių praleidžiamos");
+
 console.log("Visi skaičiavimų testai praėjo.");
