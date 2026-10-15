@@ -39,6 +39,8 @@ jobs:
           cp app/index.html app/model.js _site/
           cp python/model.py _site/model.py
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
