@@ -38,6 +38,7 @@ jobs:
           mkdir -p _site
           cp app/index.html app/model.js _site/
           cp python/model.py _site/model.py
+          cp R/model.R _site/model.R
       - uses: actions/configure-pages@v5
         with:
           enablement: true

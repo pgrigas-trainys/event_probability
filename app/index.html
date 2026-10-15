@@ -186,6 +186,7 @@ input[type=file] { display: none; }
     <div class="seg" id="engine" role="group" aria-label="Skaičiavimo kalba">
       <button type="button" data-eng="js" aria-pressed="true">JavaScript</button>
       <button type="button" data-eng="py" aria-pressed="false">Python</button>
+      <button type="button" data-eng="r" aria-pressed="false">R</button>
     </div>
     <span class="status" id="engStatus"></span>
   </div>
@@ -359,13 +360,107 @@ function loadPython() {
   pyReady.catch(() => { pyReady = null; });
   return pyReady;
 }
+// ---------- R per webR (tik už Claude programos ribų, pvz. GitHub Pages) ----------
+// webR veikia asinchroniškai, o puslapio kodas skaičiavimų laukia iškart. Todėl R atsakymai
+// įsimenami: kol R dar skaičiuoja, trumpam rodomas JavaScript rezultatas, o gavus R atsakymus
+// puslapis perpiešiamas su R skaičiais (keli ratai, nes R rezultatai priklauso vienas nuo kito).
+const WEBR = "https://cdn.jsdelivr.net/npm/webr@0.6.0/dist/";
+const R_BRIDGE = `
+.fmt <- function(v) { out <- sprintf("%.17g", v); out[!is.finite(v)] <- "null"; out }
+.to_json <- function(x) {
+  if (is.null(x)) return("null")
+  if (is.matrix(x)) return(paste0("[", paste0("[", do.call(paste, c(lapply(seq_len(ncol(x)), function(j) .fmt(x[, j])), sep = ",")), "]", collapse = ","), "]"))
+  if (is.list(x)) {
+    parts <- vapply(seq_along(x), function(i) .to_json(x[[i]]), "")
+    if (!is.null(names(x)) && all(names(x) != "")) return(paste0("{", paste0('"', names(x), '":', parts, collapse = ","), "}"))
+    return(paste0("[", paste(parts, collapse = ","), "]"))
+  }
+  if (is.character(x)) return(paste0('"', gsub('"', '\\\\\\\\"', x), '"'))
+  if (is.logical(x)) return(if (isTRUE(x)) "true" else "false")
+  if (length(x) == 1) return(.fmt(x))
+  paste0("[", paste(.fmt(x), collapse = ","), "]")
+}
+r_bridge <- function(reqs) {
+  out <- lapply(reqs, function(q) {
+    name <- q[[1]]; a <- q[[2]]
+    switch(name,
+      row_calc = row_calc(a[[1]], a[[2]], a[[3]], a[[4]]),
+      fit = fit_market(a[[1]], do.call(rbind, lapply(a[[2]], unlist))),
+      p_over = p_over(a[[1]], a[[2]]),
+      score_model = score_model(a[[1]]),
+      grid_cells = unname(as.matrix(grid_cells(a[[1]]))),
+      condition_probability = condition_probability(a[[1]],
+        lapply(a[[2]], function(c) list(v = c[[1]], op = c[[2]], x = c[[3]]))),
+      stop("nezinoma funkcija ", name))
+  })
+  .to_json(out)
+}
+`;
+// JavaScript reikšmė -> R išraiška
+const toR = v => v === null || v === undefined ? "NULL"
+  : typeof v === "number" ? (Number.isFinite(v) ? String(v) : "NA")
+  : typeof v === "boolean" ? (v ? "TRUE" : "FALSE")
+  : typeof v === "string" ? JSON.stringify(v)
+  : Array.isArray(v) ? `list(${v.map(toR).join(",")})`
+  : `list(${Object.entries(v).map(([k, x]) => "`" + k + "`=" + toR(x)).join(",")})`;
+let webR = null, rReady = null, rTimer = null, rRun = null;
+const rCache = new Map(), rPending = new Map();
+function loadR() {
+  rReady ||= (async () => {
+    const { WebR } = await import(WEBR + "webr.js");
+    const w = new WebR({ baseUrl: WEBR });
+    await w.init();
+    const src = (await (await fetch("model.R")).text()).replace(/\nif \(sys\.nframe\(\) == 0\) main\(\)\s*$/, "\n");
+    await w.evalRVoid(src + "\n" + R_BRIDGE);
+    webR = w;
+  })();
+  rReady.catch(() => { rReady = null; });
+  return rReady;
+}
+function runR() {
+  rTimer = null;
+  const reqs = [...rPending.entries()]; rPending.clear();
+  if (!reqs.length) return;
+  rRun = (async () => {
+    const code = `r_bridge(list(${reqs.map(([, q]) => `list(${toR(q.name)}, ${toR(q.args)})`).join(",")}))`;
+    const out = JSON.parse(await webR.evalRString(code));
+    reqs.forEach(([key], i) => rCache.set(key, out[i]));
+    if (rCache.size > 500) [...rCache.keys()].slice(0, 200).forEach(k => rCache.delete(k));
+    if (E === R_T) refreshAll(); // perpiešiama su R skaičiais; jei atsiranda naujų užklausų, bus kitas ratas
+  })();
+  rRun.catch(e => console.error("R klaida", e));
+}
+function rReq(name, args, fallback) {
+  const key = name + JSON.stringify(args);
+  if (rCache.has(key)) return rCache.get(key);
+  rPending.set(key, { name, args });
+  rTimer ||= setTimeout(runR, 0);
+  return fallback();
+}
+// Laukiama, kol R baigs visus ratus.
+async function rSettled() {
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 0));
+    if (rRun) { const r = rRun; rRun = null; await r.catch(() => {}); continue; }
+    if (!rPending.size && !rTimer) return;
+  }
+}
+const R_ENGINE = {
+  rowCalc: (m, r) => { const v = numRow(r); return v ? rReq("row_calc", [m.key, ...v], () => JS_ENGINE.rowCalc(m, r)) : null; },
+  fit: (m, rows) => { const v = rows.map(numRow).filter(Boolean); return v.length ? rReq("fit", [m.key, v], () => JS_ENGINE.fit(m, rows)) : null; },
+  pOver: (f, k) => rReq("p_over", [f, k], () => JS_ENGINE.pOver(f, k)),
+  scoreModel: F => rReq("score_model", [F], () => JS_ENGINE.scoreModel(F)),
+  gridCells: M => rReq("grid_cells", [M], () => JS_ENGINE.gridCells(M)),
+  conditionProbability: (M, conds) => rReq("condition_probability", [M, conds.map(c => [c.v, c.op, Number(c.x)])], () => JS_ENGINE.conditionProbability(M, conds)),
+};
+
 // Matuojamas laikas atskirai: kiek užtrunka patys skaičiavimai (model.js / model.py), o kiek puslapio piešimas.
 let calcMs = 0;
 const timed = eng => Object.fromEntries(Object.entries(eng).map(([k, f]) => [k, (...a) => {
   const t = performance.now();
   try { return f(...a); } finally { calcMs += performance.now() - t; }
 }]));
-const JS_T = timed(JS_ENGINE), PY_T = timed(PY_ENGINE);
+const JS_T = timed(JS_ENGINE), PY_T = timed(PY_ENGINE), R_T = R_ENGINE;
 function measure(label) {
   calcMs = 0;
   const t0 = performance.now(); refreshAll();
@@ -386,6 +481,29 @@ async function setEngine(name) {
       E = JS_T; refreshAll();
       document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === "js"));
       st.className = "status err"; st.textContent = "Python nepavyko užkrauti. Skaičiuoja JavaScript.";
+      state.engine = "js"; save(); return;
+    }
+  } else if (name === "r") {
+    if (window.claude) {
+      E = JS_T; refreshAll();
+      document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === "js"));
+      st.className = "status err";
+      st.textContent = "R čia neveikia: jo failas per didelis Claude programai. R veikia GitHub Pages versijoje: pgrigas-trainys.github.io/event_probability";
+      return;
+    }
+    st.className = "status"; st.textContent = "Kraunamas R (pirmą kartą ~30 MB)…";
+    try {
+      await loadR();
+      E = R_T; rCache.clear();
+      const t0 = performance.now();
+      refreshAll(); await rSettled();
+      const f = x => x < 10 ? x.toFixed(1) : Math.round(x);
+      st.className = "status ok"; st.textContent = `Skaičiuoja R (webR): su puslapio piešimu ${f(performance.now() - t0)} ms`;
+    } catch (e) {
+      console.error(e);
+      E = JS_T; refreshAll();
+      document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === "js"));
+      st.className = "status err"; st.textContent = "R nepavyko užkrauti. Skaičiuoja JavaScript.";
       state.engine = "js"; save(); return;
     }
   } else {
@@ -744,7 +862,7 @@ $("homeName").value = state.home || ""; $("awayName").value = state.away || "";
 MARKETS.forEach(m => { renderRows(m.key); renderThumbs(m.key); });
 setTab(["cs", "q"].includes(state.tab) ? state.tab : "odds");
 $("engine").addEventListener("click", e => { const b = e.target.closest("[data-eng]"); if (b) setEngine(b.dataset.eng); });
-if (state.engine === "py") setEngine("py");
+if (state.engine === "py" || state.engine === "r") setEngine(state.engine);
 
 $("homeName").addEventListener("input", e => { state.home = e.target.value.trim(); save(); updateComputed("hcp"); });
 $("awayName").addEventListener("input", e => { state.away = e.target.value.trim(); save(); updateComputed("hcp"); });
