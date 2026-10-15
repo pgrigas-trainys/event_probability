@@ -271,7 +271,7 @@ const KEY = "event-probability-v1";
 
 // ---------- skaičiavimo variklis: JavaScript (model.js) arba Python (model.py per Brython) ----------
 const JS_ENGINE = { rowCalc, fit, pOver, scoreModel, gridCells, conditionProbability };
-let E = JS_ENGINE;
+let E = JS_ENGINE; // keičiama į laiką matuojančią versiją setEngine()
 const BRYTHON = "https://cdn.jsdelivr.net/npm/brython@3.14.3/";
 const PY_BRIDGE = `
 import json
@@ -348,6 +348,20 @@ function loadPython() {
   pyReady.catch(() => { pyReady = null; });
   return pyReady;
 }
+// Matuojamas laikas atskirai: kiek užtrunka patys skaičiavimai (model.js / model.py), o kiek puslapio piešimas.
+let calcMs = 0;
+const timed = eng => Object.fromEntries(Object.entries(eng).map(([k, f]) => [k, (...a) => {
+  const t = performance.now();
+  try { return f(...a); } finally { calcMs += performance.now() - t; }
+}]));
+const JS_T = timed(JS_ENGINE), PY_T = timed(PY_ENGINE);
+function measure(label) {
+  calcMs = 0;
+  const t0 = performance.now(); refreshAll();
+  const total = performance.now() - t0;
+  const f = x => x < 10 ? x.toFixed(1) : Math.round(x);
+  return `${label}: skaičiavimai ${f(calcMs)} ms, su puslapio piešimu ${f(total)} ms`;
+}
 async function setEngine(name) {
   const st = $("engStatus");
   document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === name));
@@ -355,19 +369,17 @@ async function setEngine(name) {
     st.className = "status"; st.textContent = "Kraunamas Python (pirmą kartą ~15 MB)…";
     try {
       await loadPython();
-      const t0 = performance.now();
-      E = PY_ENGINE; refreshAll();
-      st.className = "status ok"; st.textContent = `Skaičiuoja Python, ${pyKind} (${Math.round(performance.now() - t0)} ms)`;
+      E = PY_T;
+      st.className = "status ok"; st.textContent = measure(`Skaičiuoja Python (${pyKind})`);
     } catch (e) {
-      E = JS_ENGINE; refreshAll();
+      E = JS_T; refreshAll();
       document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === "js"));
       st.className = "status err"; st.textContent = "Python nepavyko užkrauti. Skaičiuoja JavaScript.";
       state.engine = "js"; save(); return;
     }
   } else {
-    E = JS_ENGINE;
-    const t0 = performance.now(); refreshAll();
-    st.className = "status"; st.textContent = `Skaičiuoja JavaScript (${Math.round(performance.now() - t0)} ms)`;
+    E = JS_T;
+    st.className = "status"; st.textContent = measure("Skaičiuoja JavaScript");
   }
   state.engine = name; save();
 }
