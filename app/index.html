@@ -319,14 +319,25 @@ async function modelSource() {
   return (await (await fetch("model.py")).text()).replace(/\nif __name__ == "__main__":[\s\S]*$/, "\n");
 }
 // 1) Pyodide: tikras CPython per WebAssembly + NumPy (failai įkelti kartu su programa, aplanke pyodide/).
+const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.29.4/full/";
 async function loadPyodideEngine() {
-  await loadScript("pyodide/pyodide.js");
-  // Claude programa nepriima .zip/.whl failų, todėl jie įkelti su .wasm plėtiniu.
-  const base = new URL("pyodide/", location.href).href;
-  const pyo = await window.loadPyodide({ indexURL: base, stdLibURL: base + "python_stdlib.wasm" });
-  const whl = "numpy-2.2.5-cp313-cp313-pyemscripten_2025_0_wasm32.whl";
-  pyo.FS.writeFile("/tmp/" + whl, new Uint8Array(await (await fetch(base + "numpy.wasm")).arrayBuffer()));
-  await pyo.loadPackage("emfs:/tmp/" + whl);
+  let pyo;
+  try {
+    if (!window.claude) throw new Error("ne Claude programa");
+    // Claude programoje: failai įkelti kartu su programa (aplankas pyodide/).
+    // Claude programa nepriima .zip/.whl failų, todėl jie įkelti su .wasm plėtiniu.
+    await loadScript("pyodide/pyodide.js");
+    const base = new URL("pyodide/", location.href).href;
+    pyo = await window.loadPyodide({ indexURL: base, stdLibURL: base + "python_stdlib.wasm" });
+    const whl = "numpy-2.2.5-cp313-cp313-pyemscripten_2025_0_wasm32.whl";
+    pyo.FS.writeFile("/tmp/" + whl, new Uint8Array(await (await fetch(base + "numpy.wasm")).arrayBuffer()));
+    await pyo.loadPackage("emfs:/tmp/" + whl);
+  } catch (e) {
+    // GitHub Pages ir kitur: Pyodide ir NumPy tiesiai iš oficialaus CDN.
+    await loadScript(PYODIDE_CDN + "pyodide.js");
+    pyo = await window.loadPyodide({ indexURL: PYODIDE_CDN });
+    await pyo.loadPackage("numpy");
+  }
   pyo.runPython(await modelSource() + "\n" + PY_BRIDGE);
   window.pyBridge = pyo.globals.get("_bridge");
   pyKind = "Pyodide + NumPy";
