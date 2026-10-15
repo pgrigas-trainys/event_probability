@@ -275,7 +275,6 @@ let E = JS_ENGINE;
 const BRYTHON = "https://cdn.jsdelivr.net/npm/brython@3.14.3/";
 const PY_BRIDGE = `
 import json
-from browser import window
 
 def _bridge(name, args_json):
     a = json.loads(args_json)
@@ -296,8 +295,6 @@ def _bridge(name, args_json):
     if name == "condition_probability":
         return json.dumps(condition_probability(ScoreModel(**a[0]), [tuple(c) for c in a[1]]))
     raise ValueError(name)
-
-window.pyBridge = _bridge
 `;
 const numRow = r => { const v = [r.l, r.a, r.b].map(x => parseFloat(String(x).replace(",", "."))); return v.every(isFinite) ? v : null; };
 // Tie patys Python skaičiavimai kartojasi kelis kartus per perpiešimą, todėl atsakymai įsimenami.
@@ -317,14 +314,35 @@ const PY_ENGINE = {
   conditionProbability: (M, conds) => py("condition_probability", [M, conds.map(c => [c.v, c.op, Number(c.x)])]),
 };
 const loadScript = src => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error(src)); document.head.append(s); });
-let pyReady = null;
+let pyReady = null, pyKind = "";
+async function modelSource() {
+  return (await (await fetch("model.py")).text()).replace(/\nif __name__ == "__main__":[\s\S]*$/, "\n");
+}
+// 1) Pyodide: tikras CPython per WebAssembly + NumPy (failai įkelti kartu su programa, aplanke pyodide/).
+async function loadPyodideEngine() {
+  await loadScript("pyodide/pyodide.js");
+  // Claude programa nepriima .zip/.whl failų, todėl jie įkelti su .wasm plėtiniu.
+  const base = new URL("pyodide/", location.href).href;
+  const pyo = await window.loadPyodide({ indexURL: base, stdLibURL: base + "python_stdlib.wasm" });
+  const whl = "numpy-2.2.5-cp313-cp313-pyemscripten_2025_0_wasm32.whl";
+  pyo.FS.writeFile("/tmp/" + whl, new Uint8Array(await (await fetch(base + "numpy.wasm")).arrayBuffer()));
+  await pyo.loadPackage("emfs:/tmp/" + whl);
+  pyo.runPython(await modelSource() + "\n" + PY_BRIDGE);
+  window.pyBridge = pyo.globals.get("_bridge");
+  pyKind = "Pyodide + NumPy";
+}
+// 2) Atsarginis variantas: Brython (Python imitacija JavaScript'u, be NumPy).
+async function loadBrythonEngine() {
+  await loadScript(BRYTHON + "brython.min.js");
+  await loadScript(BRYTHON + "brython_stdlib.js");
+  window.brython?.({ debug: 0 });
+  __BRYTHON__.runPythonSource(await modelSource() + "\n" + PY_BRIDGE + "\nfrom browser import window\nwindow.pyBridge = _bridge\n", { name: "model" });
+  pyKind = "Brython";
+}
 function loadPython() {
   pyReady ||= (async () => {
-    await loadScript(BRYTHON + "brython.min.js");
-    await loadScript(BRYTHON + "brython_stdlib.js");
-    const src = (await (await fetch("model.py")).text()).replace(/\nif __name__ == "__main__":[\s\S]*$/, "\n");
-    window.brython?.({ debug: 0 });
-    __BRYTHON__.runPythonSource(src + "\n" + PY_BRIDGE, { name: "model" });
+    try { await loadPyodideEngine(); }
+    catch (e) { console.warn("Pyodide nepavyko, bandomas Brython", e); await loadBrythonEngine(); }
     if (typeof window.pyBridge !== "function") throw new Error("Python neužsikrovė");
   })();
   pyReady.catch(() => { pyReady = null; });
@@ -334,12 +352,12 @@ async function setEngine(name) {
   const st = $("engStatus");
   document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === name));
   if (name === "py") {
-    st.className = "status"; st.textContent = "Kraunamas Python…";
+    st.className = "status"; st.textContent = "Kraunamas Python (pirmą kartą ~15 MB)…";
     try {
       await loadPython();
       const t0 = performance.now();
       E = PY_ENGINE; refreshAll();
-      st.className = "status ok"; st.textContent = `Skaičiuoja Python (${Math.round(performance.now() - t0)} ms)`;
+      st.className = "status ok"; st.textContent = `Skaičiuoja Python, ${pyKind} (${Math.round(performance.now() - t0)} ms)`;
     } catch (e) {
       E = JS_ENGINE; refreshAll();
       document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === "js"));

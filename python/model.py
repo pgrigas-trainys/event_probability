@@ -2,7 +2,9 @@
 
 Koeficientai -> tikimybės be maržos, normaliojo skirstinio įvertis kiekvienai rinkai,
 abiejų komandų taškų modelis su koreliacija, rezultatų tinklelis ir sąlygų tikimybė.
-Naudoja tik Python standartinę biblioteką.
+Naudoja Python standartinę biblioteką. Jei įdiegta NumPy, rezultatų tinklelis ir sąlygos
+skaičiuojami vektoriškai (visas tinklelis vienu kartu, ~10 kartų greičiau); be NumPy tas pats
+skaičiuojama paprastais ciklais, rezultatas nesikeičia.
 
 Paleidimas iš repozitorijos šaknies:
     python3 python/model.py --hcp data/hcp.csv --tot data/tot.csv \
@@ -21,6 +23,11 @@ import math
 import re
 from dataclasses import dataclass
 from statistics import NormalDist
+
+try:
+    import numpy as np
+except ImportError:  # be NumPy (pvz. Brython) naudojami ciklai
+    np = None
 
 N = NormalDist()
 SIGMA0 = {"hcp": 12.0, "tot": 16.0, "home": 10.0, "away": 10.0}
@@ -101,8 +108,22 @@ def score_model(F: dict[str, Fit | None]) -> ScoreModel | None:
     return None
 
 
+def _grid_arrays(M: ScoreModel):
+    """NumPy versija: masyvai H, A, P visiems sveikiems rezultatams per ±5σ."""
+    rho = max(-0.95, min(0.95, M.rho))
+    h = np.arange(max(0, math.floor(M.mh - 5 * M.sh)), math.ceil(M.mh + 5 * M.sh) + 1)
+    a = np.arange(max(0, math.floor(M.ma - 5 * M.sa)), math.ceil(M.ma + 5 * M.sa) + 1)
+    H, A = np.meshgrid(h, a, indexing="ij")
+    x, y = (H - M.mh) / M.sh, (A - M.ma) / M.sa
+    d = np.exp(-(x * x - 2 * rho * x * y + y * y) / (2 * (1 - rho * rho)))
+    return H.ravel(), A.ravel(), (d / d.sum()).ravel()
+
+
 def grid_cells(M: ScoreModel) -> list[tuple[int, int, float]]:
     """Visi sveiki rezultatai h : a per ±5σ su dvimačio normaliojo tankiu, sunormuoti iki 1."""
+    if np is not None:
+        H, A, P = _grid_arrays(M)
+        return list(zip(H.tolist(), A.tolist(), P.tolist()))
     rho = max(-0.95, min(0.95, M.rho))
     cells, tot = [], 0.0
     for h in range(max(0, math.floor(M.mh - 5 * M.sh)), math.ceil(M.mh + 5 * M.sh) + 1):
@@ -125,6 +146,12 @@ def condition_probability(M: ScoreModel, conds: list[tuple[str, str, float]]) ->
     for v, op, _ in conds:
         if v not in VARS or op not in OPS:
             raise ValueError(f"Netinkama sąlyga: {v} {op}")
+    if np is not None:
+        H, A, P = _grid_arrays(M)
+        mask = np.ones(P.shape, dtype=bool)
+        for v, op, x in conds:
+            mask &= OPS[op](VARS[v](H, A), x)
+        return float(P[mask].sum())
     return sum(w for h, a, w in grid_cells(M)
                if all(OPS[op](VARS[v](h, a), x) for v, op, x in conds))
 
