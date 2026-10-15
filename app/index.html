@@ -108,6 +108,38 @@ td .x:hover { color: var(--bad); }
 .calc output { color: var(--fg); }
 .calc output b { font-family: var(--f-mono); font-weight: 500; }
 input[type=file] { display: none; }
+#view-cs, #view-odds { display: flex; flex-direction: column; gap: 14px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tabs button { border: 0; background: transparent; padding: 8px 14px 9px; font-family: var(--f-display); font-size: 1.1rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tabs button:hover { color: var(--fg); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.csgrid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .csgrid { grid-template-columns: minmax(0, 1fr); } }
+.cstools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 5px 11px; font-family: var(--f-mono); font-size: .8rem; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.heat { border-collapse: separate; border-spacing: 2px; width: auto; }
+.heat th, .heat td { border: 0; padding: 0; }
+.heat th { font-family: var(--f-mono); font-size: .68rem; letter-spacing: 0; text-transform: none; color: var(--muted); padding: 2px 6px; text-align: center; }
+.heat th.rh { text-align: right; color: var(--home); }
+.heat thead th { color: var(--away); vertical-align: bottom; }
+.heat .corner { text-align: left; font-family: var(--f-body); font-size: .68rem; line-height: 1.2; }
+.heat .corner b { color: var(--home); font-weight: 500; } .heat .corner i { color: var(--away); font-style: normal; }
+.heat td { min-width: 48px; height: 30px; text-align: center; font-family: var(--f-mono); font-size: .72rem; font-variant-numeric: tabular-nums; border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) calc(var(--v) * 100%), var(--sunk)); }
+.heat td.hi { color: #fff; }
+.heat td.top { outline: 2px solid var(--fg); outline-offset: -2px; }
+.heat td.draw { box-shadow: inset 0 0 0 1px var(--muted); }
+.toplist { display: flex; flex-direction: column; }
+.toplist .r { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.toplist .r:first-of-type { border-top: 0; }
+.toplist .r span { font-family: var(--f-display); font-weight: 600; color: var(--muted); text-align: right; }
+.toplist .r b { font-family: var(--f-mono); font-weight: 500; }
+.toplist .r b .h { color: var(--home); } .toplist .r b .a { color: var(--away); }
+.toplist .r em { font-style: normal; font-family: var(--f-mono); font-size: .85rem; }
 </style>
 
 <div class="wrap">
@@ -120,8 +152,34 @@ input[type=file] { display: none; }
     </div>
   </header>
 
+  <nav class="tabs" role="tablist" aria-label="Rodinys">
+    <button type="button" role="tab" id="tab-odds" aria-controls="view-odds" aria-selected="true">Koeficientai</button>
+    <button type="button" role="tab" id="tab-cs" aria-controls="view-cs" aria-selected="false">Tikslus rezultatas</button>
+  </nav>
+
   <section class="summary" id="summary" aria-live="polite"></section>
 
+  <section id="view-cs" role="tabpanel" aria-labelledby="tab-cs" hidden>
+    <div class="csgrid">
+      <div class="panel">
+        <div class="phead"><h2>Tikslaus rezultato lenta</h2><span class="fit" id="csInfo"></span></div>
+        <div class="cstools"><span>Taškų intervalas</span>
+          <div class="seg" id="csStep" role="group" aria-label="Taškų intervalas">
+            <button type="button" data-step="3">3</button><button type="button" data-step="5">5</button><button type="button" data-step="10">10</button>
+          </div>
+          <span>Eilutės: namų taškai, stulpeliai: svečių taškai.</span>
+        </div>
+        <div class="tw" id="csBoard"></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>Tikėtiniausi rezultatai</h2></div>
+        <div class="toplist" id="csTop"></div>
+      </div>
+    </div>
+    <p class="note">Rezultatų tikimybės apskaičiuotos iš handikapo ir taškų sumos: abiejų komandų taškams pritaikytas dvimatis normalusis skirstinys, o ryšys tarp jų įvertintas iš abiejų rinkų σ. Jei įvestos tik komandų taškų rinkos, naudojamos jos. Lygiosios krepšinyje baigiasi pratęsimu, todėl jos sąraše nerodomos.</p>
+  </section>
+
+  <div id="view-odds" role="tabpanel" aria-labelledby="tab-odds">
   <div class="pacts">
     <button class="btn primary" id="scanAll" type="button">Nuskaityti visas nuotraukas</button>
     <button class="btn" id="resetAll" type="button">Naujos rungtynės</button>
@@ -131,6 +189,7 @@ input[type=file] { display: none; }
   <div class="markets" id="markets"></div>
 
   <p class="note">Tikimybės be bukmekerio maržos. Vidurkis ir σ (standartinis nuokrypis) įvertinti pritaikius normalųjį skirstinį visoms tos rinkos linijoms. Skaičius lentelėje galima taisyti ranka.</p>
+  </div>
 </div>
 
 <script>
@@ -307,6 +366,7 @@ function renderSummary() {
     if (F.home) cards.push(`<div class="kpi"><small>${esc(homeN())} taškai</small><b class="num">${F.home.mu.toFixed(1)}</b><span>σ ${F.home.sigma.toFixed(1)}</span></div>`);
     if (F.away) cards.push(`<div class="kpi"><small>${esc(awayN())} taškai</small><b class="num">${F.away.mu.toFixed(1)}</b><span>σ ${F.away.sigma.toFixed(1)}</span></div>`);
   }
+  renderCS(F);
   $("summary").innerHTML = cards.join("") || `<div class="kpi"><small>Santrauka</small><b>–</b><span>Įkelkite bent vienos rinkos koeficientus.</span></div>`;
 }
 
@@ -379,10 +439,75 @@ function disableScan(msg) {
   $("globalNote").classList.add("warn");
 }
 
+// ---------- correct score ----------
+function scoreModel(F) {
+  if (F.hcp && F.tot) {
+    const vT = F.tot.sigma ** 2, vM = F.hcp.sigma ** 2;
+    const s = Math.sqrt((vT + vM) / 4);
+    return { mh: (F.tot.mu + F.hcp.mu) / 2, ma: (F.tot.mu - F.hcp.mu) / 2, sh: s, sa: s, rho: (vT - vM) / (vT + vM), src: "handikapas + suma" };
+  }
+  if (F.home && F.away) return { mh: F.home.mu, ma: F.away.mu, sh: F.home.sigma, sa: F.away.sigma, rho: 0, src: "komandų taškai" };
+  return null;
+}
+function renderCS(F) {
+  const M = scoreModel(F);
+  const step = state.csStep || 5;
+  document.querySelectorAll("#csStep button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.step === step));
+  if (!M) {
+    $("csInfo").textContent = "";
+    $("csBoard").innerHTML = `<p class="note">Lentelei reikia handikapo ir taškų sumos koeficientų (arba abiejų komandų taškų). Įveskite juos skiltyje „Koeficientai“.</p>`;
+    $("csTop").innerHTML = `<p class="note">Kol kas nėra duomenų.</p>`;
+    return;
+  }
+  const { mh, ma, sh, sa } = M, rho = Math.max(-0.95, Math.min(0.95, M.rho));
+  const h0 = Math.floor(mh - 4 * sh), h1 = Math.ceil(mh + 4 * sh), a0 = Math.floor(ma - 4 * sa), a1 = Math.ceil(ma + 4 * sa);
+  const cells = []; let tot = 0;
+  for (let h = Math.max(0, h0); h <= h1; h++) for (let a = Math.max(0, a0); a <= a1; a++) {
+    const x = (h - mh) / sh, y = (a - ma) / sa;
+    const d = Math.exp(-(x * x - 2 * rho * x * y + y * y) / (2 * (1 - rho * rho)));
+    cells.push([h, a, d]); tot += d;
+  }
+  cells.forEach(c => c[2] /= tot);
+  // Buckets aligned to multiples of step, tails folded into the edge buckets (about ±2.5σ).
+  const bLo = (m, s) => Math.floor((m - 2.5 * s) / step), bHi = (m, s) => Math.floor((m + 2.5 * s) / step);
+  const hb0 = bLo(mh, sh), hb1 = bHi(mh, sh), ab0 = bLo(ma, sa), ab1 = bHi(ma, sa);
+  const grid = Array.from({ length: hb1 - hb0 + 1 }, () => new Array(ab1 - ab0 + 1).fill(0));
+  for (const [h, a, p] of cells) {
+    const i = Math.min(hb1, Math.max(hb0, Math.floor(h / step))) - hb0, j = Math.min(ab1, Math.max(ab0, Math.floor(a / step))) - ab0;
+    grid[i][j] += p;
+  }
+  const label = (b, lo, hi) => b === lo ? `≤${(b + 1) * step - 1}` : b === hi ? `≥${b * step}` : step === 1 ? `${b}` : `${b * step}–${(b + 1) * step - 1}`;
+  let max = 0; grid.forEach(r => r.forEach(v => { if (v > max) max = v; }));
+  const hdr = Array.from({ length: ab1 - ab0 + 1 }, (_, j) => `<th scope="col">${label(ab0 + j, ab0, ab1)}</th>`).join("");
+  const body = grid.map((row, i) => {
+    const hb = hb0 + i;
+    return `<tr><th scope="row" class="rh">${label(hb, hb0, hb1)}</th>${row.map((v, j) => {
+      const ab = ab0 + j, r = max ? v / max : 0;
+      const cls = [r > 0.55 ? "hi" : "", v === max ? "top" : "", hb === ab ? "draw" : ""].filter(Boolean).join(" ");
+      return `<td style="--v:${(r * 0.9).toFixed(3)}" class="${cls}" title="${esc(homeN())} ${label(hb, hb0, hb1)}, ${esc(awayN())} ${label(ab, ab0, ab1)}: ${pct(v)}">${v >= 0.0005 ? (v * 100).toFixed(1) : ""}</td>`;
+    }).join("")}</tr>`;
+  }).join("");
+  $("csBoard").innerHTML = `<table class="heat"><thead><tr><th class="corner"><b>${esc(homeN())}</b> ↓<br><i>${esc(awayN())}</i> →</th>${hdr}</tr></thead><tbody>${body}</tbody></table>`;
+  $("csInfo").innerHTML = `${esc(homeN())} <b>${mh.toFixed(1)}</b> · ${esc(awayN())} <b>${ma.toFixed(1)}</b> · ${M.src}`;
+  const top = cells.filter(c => c[0] !== c[1]).sort((x, y) => y[2] - x[2]).slice(0, 10);
+  $("csTop").innerHTML = top.map(([h, a, p], i) =>
+    `<div class="r"><span>${i + 1}</span><b><span class="h">${h}</span> : <span class="a">${a}</span></b><em>${(p * 100).toFixed(2)}%</em></div>`).join("");
+}
+
+function setTab(t) {
+  state.tab = t; save();
+  $("tab-odds").setAttribute("aria-selected", t === "odds"); $("tab-cs").setAttribute("aria-selected", t === "cs");
+  $("view-odds").hidden = t !== "odds"; $("view-cs").hidden = t !== "cs";
+}
+$("tab-odds").addEventListener("click", () => setTab("odds"));
+$("tab-cs").addEventListener("click", () => setTab("cs"));
+$("csStep").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.csStep = +b.dataset.step; save(); renderSummary(); });
+
 // ---------- events ----------
 $("markets").innerHTML = MARKETS.map(panelHTML).join("");
 $("homeName").value = state.home || ""; $("awayName").value = state.away || "";
 MARKETS.forEach(m => { renderRows(m.key); renderThumbs(m.key); });
+setTab(state.tab === "cs" ? "cs" : "odds");
 
 $("homeName").addEventListener("input", e => { state.home = e.target.value.trim(); save(); updateComputed("hcp"); });
 $("awayName").addEventListener("input", e => { state.away = e.target.value.trim(); save(); updateComputed("hcp"); });
