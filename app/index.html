@@ -175,7 +175,7 @@ input[type=file] { display: none; }
           <div class="seg" id="csStep" role="group" aria-label="Taškų intervalas">
             <button type="button" data-step="1">1</button><button type="button" data-step="3">3</button><button type="button" data-step="5">5</button>
           </div>
-          <span>Eilutės: namų taškai, stulpeliai: svečių taškai. Tikimybės nuo 0 iki 1.</span>
+          <span>Eilutės: namų taškai, stulpeliai: svečių taškai. Tikimybės procentais.</span>
         </div>
         <div class="tw csboard" id="csBoard"></div>
       </div>
@@ -506,7 +506,7 @@ function renderCS(F) {
     return `<tr><th scope="row" class="rh">${label(hb, hb0, hb1)}</th>${row.map((v, j) => {
       const ab = ab0 + j, edge = !inner(i, j), r = max && !edge ? Math.min(1, v / max) : 0;
       const cls = [r > 0.55 ? "hi" : "", !edge && v === max ? "top" : "", edge ? "edge" : "", hb === ab ? "draw" : ""].filter(Boolean).join(" ");
-      return `<td style="--v:${(r * 0.9).toFixed(3)}" class="${cls}" title="${esc(homeN())} ${label(hb, hb0, hb1)}, ${esc(awayN())} ${label(ab, ab0, ab1)}: ${v.toFixed(4)}">${v >= 0.00005 ? v.toFixed(4) : ""}</td>`;
+      return `<td style="--v:${(r * 0.9).toFixed(3)}" class="${cls}" title="${esc(homeN())} ${label(hb, hb0, hb1)}, ${esc(awayN())} ${label(ab, ab0, ab1)}: ${(v * 100).toFixed(2)}%">${v >= 0.00005 ? (v * 100).toFixed(2) : ""}</td>`;
     }).join("")}</tr>`;
   }).join("");
   $("csBoard").innerHTML = `<table class="heat${step === 1 ? " fine" : ""}"><thead><tr><th class="corner"><b>${esc(homeN())}</b> ↓<br><i>${esc(awayN())}</i> →</th>${hdr}</tr></thead><tbody>${body}</tbody></table>`;
@@ -514,7 +514,7 @@ function renderCS(F) {
   $("csInfo").innerHTML = `${esc(homeN())} <b>${mh.toFixed(1)}</b> · ${esc(awayN())} <b>${ma.toFixed(1)}</b> · ρ <b>${rho.toFixed(3)}</b> · ${M.src}`;
   const top = cells.filter(c => c[0] !== c[1]).sort((x, y) => y[2] - x[2]).slice(0, 10);
   $("csTop").innerHTML = top.map(([h, a, p], i) =>
-    `<div class="r"><span>${i + 1}</span><b><span class="h">${h}</span> : <span class="a">${a}</span></b><em>${p.toFixed(4)}</em></div>`).join("");
+    `<div class="r"><span>${i + 1}</span><b><span class="h">${h}</span> : <span class="a">${a}</span></b><em>${(p * 100).toFixed(2)}%</em></div>`).join("");
 }
 
 function centerTop() {
