@@ -524,14 +524,7 @@ function renderCS(F) {
     return;
   }
   const { mh, ma, sh, sa } = M, rho = Math.max(-0.95, Math.min(0.95, M.rho));
-  const h0 = Math.floor(mh - 4 * sh), h1 = Math.ceil(mh + 4 * sh), a0 = Math.floor(ma - 4 * sa), a1 = Math.ceil(ma + 4 * sa);
-  const cells = []; let tot = 0;
-  for (let h = Math.max(0, h0); h <= h1; h++) for (let a = Math.max(0, a0); a <= a1; a++) {
-    const x = (h - mh) / sh, y = (a - ma) / sa;
-    const d = Math.exp(-(x * x - 2 * rho * x * y + y * y) / (2 * (1 - rho * rho)));
-    cells.push([h, a, d]); tot += d;
-  }
-  cells.forEach(c => c[2] /= tot);
+  const cells = gridCells(M); // the same score grid the Conditions tab uses
   // Buckets aligned to multiples of step, tails folded into the edge buckets (about ±2.5σ).
   const span = step === 1 ? 2 : 2.5;
   const bLo = (m, s) => Math.floor((m - span * s) / step), bHi = (m, s) => Math.floor((m + span * s) / step);
