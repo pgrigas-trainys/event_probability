@@ -1,0 +1,456 @@
+<title>Rungtynių tikimybės</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: match header + summary strip, then a 2x2 grid of market panels (screenshot drop + editable odds table); one column on phones */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --sunk: #f5f7f9;
+  --line: #d8dee5;
+  --fg: #15212c;
+  --muted: #5d6b78;
+  --accent: #d9581c;
+  --accent-soft: #fbe6da;
+  --home: #1b64a8;
+  --away: #8a3fa0;
+  --ok: #2f7d4f;
+  --warn: #a8700a;
+  --bad: #b8322a;
+  --f-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e151c; --surface: #16212b; --sunk: #111a22; --line: #26333f; --fg: #e4eaf0; --muted: #8e9cab;
+  --accent: #f07a3e; --accent-soft: #3a2418; --home: #5ea3e6; --away: #c47ad8; --ok: #5cc28a; --warn: #e0a83a; --bad: #ef6b60; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0e151c; --surface: #16212b; --sunk: #111a22; --line: #26333f; --fg: #e4eaf0; --muted: #8e9cab;
+  --accent: #f07a3e; --accent-soft: #3a2418; --home: #5ea3e6; --away: #c47ad8; --ok: #5cc28a; --warn: #e0a83a; --bad: #ef6b60; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; }
+.wrap { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: 2.2rem; line-height: 1; margin: 0; text-transform: uppercase; }
+h1 span { color: var(--accent); }
+.teams { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.teams input { font-family: var(--f-display); font-size: 1.3rem; font-weight: 600; padding: 4px 10px; width: 13ch; min-width: 0;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
+#homeName { color: var(--home); } #awayName { color: var(--away); }
+.teams small { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 12px; font-size: .85rem; }
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.small { padding: 4px 9px; font-size: .78rem; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kpi small { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.kpi b { font-family: var(--f-display); font-size: 1.9rem; font-weight: 600; line-height: 1.05; }
+.kpi span { font-size: .78rem; color: var(--muted); }
+.kpi.lead { border-color: var(--accent); }
+.kpi.lead b { color: var(--accent); }
+.bar2 { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px; background: var(--line); }
+.bar2 i { display: block; height: 100%; }
+.bar2 .h { background: var(--home); } .bar2 .a { background: var(--away); }
+
+.note { font-size: .8rem; color: var(--muted); margin: 0; }
+.note.warn { color: var(--warn); }
+
+.markets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 860px) { .markets { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.panel.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.phead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.phead h2 { font-family: var(--f-display); font-size: 1.25rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin: 0; }
+.phead .fit { font-size: .78rem; color: var(--muted); }
+.phead .fit b { color: var(--fg); font-family: var(--f-mono); font-weight: 500; }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 6px; background: var(--sunk); padding: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 64px; cursor: pointer; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop .hint { font-size: .8rem; color: var(--muted); flex: 1 1 200px; }
+.drop .hint b { color: var(--fg); font-weight: 500; }
+.thumb { position: relative; width: 72px; height: 48px; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; line-height: 14px; padding: 0; border: 0; border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 70%, transparent); color: var(--bg); font-size: .8rem; }
+.pacts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.status { font-size: .78rem; color: var(--muted); }
+.status.err { color: var(--bad); }
+.status.ok { color: var(--ok); }
+
+.tw { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: right; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+td input { width: 7.5ch; font-family: var(--f-mono); font-size: .85rem; text-align: right; padding: 3px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--fg); }
+td input:hover { border-color: var(--line); }
+td input:focus { border-color: var(--accent); background: var(--sunk); outline: none; }
+td.p { font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: .85rem; }
+td.pa { color: var(--home); } td.pb { color: var(--away); }
+.tot td.pa, .tot td.pb { color: var(--fg); }
+td.m { color: var(--muted); font-family: var(--f-mono); font-size: .75rem; }
+td .x { border: 0; background: transparent; color: var(--muted); padding: 0 4px; }
+td .x:hover { color: var(--bad); }
+.empty td { text-align: left; color: var(--muted); font-size: .8rem; padding: 8px 6px; }
+
+.calc { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .82rem; color: var(--muted); padding-top: 2px; }
+.calc input { width: 7ch; font-family: var(--f-mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); color: var(--fg); text-align: right; }
+.calc output { color: var(--fg); }
+.calc output b { font-family: var(--f-mono); font-weight: 500; }
+input[type=file] { display: none; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Rungtynių <span>tikimybės</span></h1>
+    <div class="teams">
+      <small>Namai</small><input id="homeName" aria-label="Namų komanda" value="">
+      <small>vs</small>
+      <input id="awayName" aria-label="Svečių komanda" value=""><small>Svečiai</small>
+    </div>
+  </header>
+
+  <section class="summary" id="summary" aria-live="polite"></section>
+
+  <div class="pacts">
+    <button class="btn primary" id="scanAll" type="button">Nuskaityti visas nuotraukas</button>
+    <button class="btn" id="resetAll" type="button">Naujos rungtynės</button>
+    <p class="note" id="globalNote">Spustelėkite rinką, tada įklijuokite ekrano nuotrauką (Ctrl+V), nutempkite ją arba pasirinkite failą.</p>
+  </div>
+
+  <div class="markets" id="markets"></div>
+
+  <p class="note">Tikimybės be bukmekerio maržos. Vidurkis ir σ (standartinis nuokrypis) įvertinti pritaikius normalųjį skirstinį visoms tos rinkos linijoms. Skaičius lentelėje galima taisyti ranka.</p>
+</div>
+
+<script>
+const MARKETS = [
+  { key: "hcp", title: "Handikapas", line: "Namų hcp", a: "Namai", b: "Svečiai", sigma0: 12,
+    what: "the HANDICAP (point spread) market. line = the HOME (first-listed) team's handicap exactly as shown, e.g. -11.5; a = decimal odds for the home team with that handicap; b = decimal odds for the away team with the opposite handicap (+11.5)." },
+  { key: "tot", title: "Taškų suma", line: "Linija", a: "Daugiau", b: "Mažiau", sigma0: 16,
+    what: "the TOTAL POINTS (over/under, \"Daugiau/Mažiau\") market for the whole game. line = the total points line, e.g. 165.5; a = decimal odds for OVER (Daugiau); b = decimal odds for UNDER (Mažiau)." },
+  { key: "home", title: "Namų komandos taškai", line: "Linija", a: "Daugiau", b: "Mažiau", sigma0: 10,
+    what: "the HOME TEAM's own points total (over/under) market. line = the home team's points line, e.g. 88.5; a = decimal odds for OVER (Daugiau); b = decimal odds for UNDER (Mažiau). Ignore rows for the other team." },
+  { key: "away", title: "Svečių komandos taškai", line: "Linija", a: "Daugiau", b: "Mažiau", sigma0: 10,
+    what: "the AWAY TEAM's own points total (over/under) market. line = the away team's points line, e.g. 77.5; a = decimal odds for OVER (Daugiau); b = decimal odds for UNDER (Mažiau). Ignore rows for the other team." },
+];
+const KEY = "event-probability-v1";
+const SEED = {
+  home: "Fenerbahce", away: "Partizan",
+  rows: {
+    hcp: [[-14.5, 2.45, 1.50], [-13.5, 2.30, 1.62], [-12.5, 2.15, 1.70], [-11.5, 1.95, 1.85],
+          [-10.5, 1.85, 1.95], [-9.5, 1.70, 2.15], [-8.5, 1.62, 2.30], [-7.5, 1.50, 2.45]]
+      .map(([l, a, b]) => ({ l: String(l), a: a.toFixed(2), b: b.toFixed(2) })),
+    tot: [], home: [], away: [],
+  },
+};
+
+// ---------- math ----------
+function erf(x) { const s = Math.sign(x); x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y; }
+const Phi = z => 0.5 * (1 + erf(z / Math.SQRT2));
+function PhiInv(p) { // Acklam
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const pl = 0.02425;
+  if (p < pl) { const q = Math.sqrt(-2 * Math.log(p)); return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  if (p > 1 - pl) { const q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  const q = p - 0.5, r = q * q;
+  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+
+// Each row -> threshold k and P(X > k) without margin. X = home−away margin for hcp, points otherwise.
+function rowCalc(m, r) {
+  const l = parseFloat(String(r.l).replace(",", ".")), a = parseFloat(String(r.a).replace(",", ".")), b = parseFloat(String(r.b).replace(",", "."));
+  if (!isFinite(l) || !(a > 1) || !(b > 1)) return null;
+  const ia = 1 / a, ib = 1 / b, book = ia + ib;
+  return { k: m.key === "hcp" ? -l : l, pa: ia / book, pb: ib / book, margin: book - 1 };
+}
+function fit(m, rows) {
+  const pts = rows.map(r => rowCalc(m, r)).filter(Boolean).map(c => ({ k: c.k, z: PhiInv(1 - Math.min(0.99, Math.max(0.01, c.pa))) }));
+  if (!pts.length) return null;
+  if (pts.length >= 2) {
+    const n = pts.length, mk = pts.reduce((s, p) => s + p.k, 0) / n, mz = pts.reduce((s, p) => s + p.z, 0) / n;
+    const sxx = pts.reduce((s, p) => s + (p.k - mk) ** 2, 0);
+    if (sxx > 0) {
+      const slope = pts.reduce((s, p) => s + (p.k - mk) * (p.z - mz), 0) / sxx;
+      if (slope > 0.01) { const sigma = 1 / slope; return { mu: mk - mz * sigma, sigma, n, assumed: false }; }
+    }
+  }
+  const sigma = m.sigma0;
+  const mu = pts.reduce((s, p) => s + (p.k - p.z * sigma), 0) / pts.length;
+  return { mu, sigma, n: pts.length, assumed: true };
+}
+const pOver = (f, k) => 1 - Phi((k - f.mu) / f.sigma);
+
+// ---------- state ----------
+let state;
+try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+if (!state || !state.rows) state = JSON.parse(JSON.stringify(SEED));
+for (const m of MARKETS) state.rows[m.key] ||= [];
+const images = Object.fromEntries(MARKETS.map(m => [m.key, []])); // {file, url}
+let active = "hcp";
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pct = p => (p * 100).toFixed(1) + "%";
+const homeN = () => state.home || "Namai";
+const awayN = () => state.away || "Svečiai";
+const sgn = x => (x > 0 ? "+" : "") + x.toFixed(1);
+
+// ---------- render ----------
+function panelHTML(m) {
+  return `<section class="panel${m.key === active ? " active" : ""}" data-m="${m.key}">
+    <div class="phead"><h2>${m.title}</h2><span class="fit" id="fit-${m.key}"></span></div>
+    <div class="drop" tabindex="0" role="button" aria-label="Pridėti nuotrauką: ${m.title}" data-drop="${m.key}">
+      <div id="thumbs-${m.key}" style="display:contents"></div>
+      <span class="hint"><b>Įklijuokite</b> (Ctrl+V), nutempkite arba spustelėkite, kad pasirinktumėte nuotrauką</span>
+      <input type="file" accept="image/*" multiple id="file-${m.key}">
+    </div>
+    <div class="pacts">
+      <button class="btn small scan" type="button" data-scan="${m.key}">Nuskaityti</button>
+      <button class="btn small" type="button" data-add="${m.key}">+ Eilutė</button>
+      <button class="btn small" type="button" data-clear="${m.key}">Išvalyti</button>
+      <span class="status" id="st-${m.key}"></span>
+    </div>
+    <div class="tw"><table class="${m.key === "hcp" ? "" : "tot"}">
+      <thead><tr><th>${m.line}</th><th id="ha-${m.key}">${m.a}</th><th id="hb-${m.key}">${m.b}</th><th>P ${m.key === "hcp" ? "namai" : "daugiau"}</th><th>P ${m.key === "hcp" ? "svečiai" : "mažiau"}</th><th>Marža</th><th></th></tr></thead>
+      <tbody id="rows-${m.key}"></tbody>
+    </table></div>
+    <div class="calc"><label for="calc-${m.key}">${m.key === "hcp" ? "Namų hcp" : "Linija"}</label>
+      <input id="calc-${m.key}" inputmode="decimal" placeholder="${m.key === "hcp" ? "-5.5" : "0"}">
+      <output id="out-${m.key}">Įveskite liniją, kad pamatytumėte tikimybę.</output></div>
+  </section>`;
+}
+
+function renderRows(key) {
+  const m = MARKETS.find(x => x.key === key);
+  const rows = state.rows[key];
+  $("rows-" + key).innerHTML = rows.length ? rows.map((r, i) => `<tr data-i="${i}">
+      <td><input inputmode="decimal" data-f="l" value="${esc(r.l)}" aria-label="${m.line}"></td>
+      <td><input inputmode="decimal" data-f="a" value="${esc(r.a)}" aria-label="${m.a} koeficientas"></td>
+      <td><input inputmode="decimal" data-f="b" value="${esc(r.b)}" aria-label="${m.b} koeficientas"></td>
+      <td class="p pa"></td><td class="p pb"></td><td class="m"></td>
+      <td><button class="x" type="button" data-del="${i}" aria-label="Pašalinti eilutę">×</button></td></tr>`).join("")
+    : `<tr class="empty"><td colspan="7">Dar nėra koeficientų. Įkelkite nuotrauką ir spauskite „Nuskaityti“ arba pridėkite eilutę ranka.</td></tr>`;
+  updateComputed(key);
+}
+
+function updateComputed(key) {
+  const m = MARKETS.find(x => x.key === key);
+  const trs = $("rows-" + key).querySelectorAll("tr[data-i]");
+  trs.forEach(tr => {
+    const c = rowCalc(m, state.rows[key][+tr.dataset.i]);
+    const [pa, pb, mg] = tr.querySelectorAll("td.pa, td.pb, td.m");
+    pa.textContent = c ? pct(c.pa) : "–"; pb.textContent = c ? pct(c.pb) : "–"; mg.textContent = c ? pct(c.margin) : "";
+  });
+  const f = fit(m, state.rows[key]);
+  $("fit-" + key).innerHTML = f
+    ? (key === "hcp" ? `Vid. pranašumas <b>${sgn(f.mu)}</b>` : `Vidurkis <b>${f.mu.toFixed(1)}</b>`) + ` · σ <b>${f.sigma.toFixed(1)}</b>${f.assumed ? " (numatyta)" : ""}`
+    : "";
+  if (key === "hcp") { $("ha-hcp").textContent = homeN(); $("hb-hcp").textContent = awayN(); }
+  calcOut(key);
+  renderSummary();
+}
+
+function calcOut(key) {
+  const m = MARKETS.find(x => x.key === key);
+  const f = fit(m, state.rows[key]);
+  const raw = $("calc-" + key).value.trim().replace(",", ".");
+  const out = $("out-" + key);
+  if (!raw) { out.textContent = "Įveskite liniją, kad pamatytumėte tikimybę."; return; }
+  const L = parseFloat(raw);
+  if (!isFinite(L)) { out.textContent = "Įveskite skaičių, pvz. -5.5."; return; }
+  if (!f) { out.textContent = "Pirmiausia reikia koeficientų."; return; }
+  if (key === "hcp") {
+    const p = pOver(f, -L);
+    out.innerHTML = `${esc(homeN())} ${L > 0 ? "+" : ""}${L}: <b>${pct(p)}</b> · ${esc(awayN())} ${-L > 0 ? "+" : ""}${-L}: <b>${pct(1 - p)}</b>`;
+  } else {
+    const p = pOver(f, L);
+    out.innerHTML = `Daugiau ${L}: <b>${pct(p)}</b> · Mažiau ${L}: <b>${pct(1 - p)}</b>`;
+  }
+}
+
+function renderSummary() {
+  const F = Object.fromEntries(MARKETS.map(m => [m.key, fit(m, state.rows[m.key])]));
+  const cards = [];
+  if (F.hcp) {
+    const pw = pOver(F.hcp, 0);
+    cards.push(`<div class="kpi lead"><small>Laimės ${esc(homeN())}</small><b class="num">${pct(pw)}</b>
+      <span>${esc(awayN())}: ${pct(1 - pw)}</span><div class="bar2"><i class="h" style="width:${pw * 100}%"></i><i class="a" style="width:${(1 - pw) * 100}%"></i></div></div>`);
+    cards.push(`<div class="kpi"><small>Tikėtinas skirtumas</small><b class="num">${sgn(F.hcp.mu)}</b><span>${esc(homeN())} naudai · σ ${F.hcp.sigma.toFixed(1)}</span></div>`);
+  }
+  if (F.tot) cards.push(`<div class="kpi"><small>Tikėtina taškų suma</small><b class="num">${F.tot.mu.toFixed(1)}</b><span>σ ${F.tot.sigma.toFixed(1)}</span></div>`);
+  let h = null, a = null, src = "";
+  if (F.hcp && F.tot) { h = (F.tot.mu + F.hcp.mu) / 2; a = (F.tot.mu - F.hcp.mu) / 2; src = "iš handikapo ir sumos"; }
+  else if (F.home && F.away) { h = F.home.mu; a = F.away.mu; src = "iš komandų taškų rinkų"; }
+  if (h !== null) {
+    let extra = "";
+    if (F.hcp && F.tot && (F.home || F.away)) extra = ` · komandų rinkos: ${F.home ? F.home.mu.toFixed(1) : "–"} : ${F.away ? F.away.mu.toFixed(1) : "–"}`;
+    cards.push(`<div class="kpi"><small>Tikėtinas rezultatas</small><b class="num">${h.toFixed(0)} : ${a.toFixed(0)}</b><span>${src}${extra}</span></div>`);
+  } else {
+    if (F.home) cards.push(`<div class="kpi"><small>${esc(homeN())} taškai</small><b class="num">${F.home.mu.toFixed(1)}</b><span>σ ${F.home.sigma.toFixed(1)}</span></div>`);
+    if (F.away) cards.push(`<div class="kpi"><small>${esc(awayN())} taškai</small><b class="num">${F.away.mu.toFixed(1)}</b><span>σ ${F.away.sigma.toFixed(1)}</span></div>`);
+  }
+  $("summary").innerHTML = cards.join("") || `<div class="kpi"><small>Santrauka</small><b>–</b><span>Įkelkite bent vienos rinkos koeficientus.</span></div>`;
+}
+
+function renderThumbs(key) {
+  $("thumbs-" + key).innerHTML = images[key].map((im, i) =>
+    `<div class="thumb"><img src="${im.url}" alt="Nuotrauka ${i + 1}"><button type="button" data-rmimg="${key}:${i}" aria-label="Pašalinti nuotrauką">×</button></div>`).join("");
+}
+
+function setActive(key) {
+  active = key;
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.dataset.m === key));
+}
+
+function addImages(key, files) {
+  for (const f of files) if (f && f.type && f.type.startsWith("image/")) images[key].push({ file: f, url: URL.createObjectURL(f) });
+  renderThumbs(key); setActive(key);
+  status(key, images[key].length ? `${images[key].length} nuotr. paruošta. Spauskite „Nuskaityti“.` : "");
+}
+function status(key, text, cls = "") { const el = $("st-" + key); el.textContent = text; el.className = "status " + cls; }
+
+// ---------- Claude reading ----------
+let sample = null, maxImgs = 5;
+const ERR = {
+  not_granted: "Claude naudojimas šiai programai neleistas.",
+  sampling_disabled: "Claude šiai paskyrai nepasiekiamas.",
+  rate_limited: "Per daug užklausų. Palaukite minutę ir bandykite dar kartą.",
+  image_rejected: "Nuotraukos nepavyko perskaityti. Pabandykite kitą failą.",
+  invalid_json: "Nepavyko atpažinti koeficientų. Bandykite dar kartą arba aiškesnę nuotrauką.",
+  refused: "Claude atsisakė apdoroti šią nuotrauką.",
+  images_unavailable: "Šiame lange nuotraukų siųsti negalima.",
+  session_expired: "Prisijunkite prie Claude iš naujo.",
+};
+
+async function scan(key) {
+  const m = MARKETS.find(x => x.key === key);
+  if (!sample) return;
+  if (!images[key].length) { status(key, "Pirmiausia įkelkite nuotrauką.", "err"); return; }
+  const btn = document.querySelector(`[data-scan="${key}"]`);
+  btn.disabled = true; status(key, "Skaitoma… (gali užtrukti iki minutės)");
+  const prompt = `These are screenshots from a sports betting website (Lithuanian, e.g. Betsson or Topsport) for a basketball game. They show ${m.what}
+Read every line visible in the images. Use decimal odds exactly as printed. Skip a line if one side's odds are not visible. Do not invent numbers. Remove duplicates.
+Also report the two team names: home = the team listed first, away = the team listed second (null if not visible).
+Reply with only JSON in this shape: {"home": "Fenerbahce", "away": "Partizan", "rows": [{"line": -11.5, "a": 1.95, "b": 1.85}]}`;
+  try {
+    const res = await sample.json(prompt, { images: images[key].slice(0, maxImgs).map(x => x.file) });
+    const rows = (res && Array.isArray(res.rows) ? res.rows : [])
+      .map(r => ({ l: Number(r.line), a: Number(r.a), b: Number(r.b) }))
+      .filter(r => isFinite(r.l) && r.a > 1 && r.b > 1)
+      .sort((x, y) => x.l - y.l)
+      .map(r => ({ l: String(r.l), a: r.a.toFixed(2), b: r.b.toFixed(2) }));
+    if (!rows.length) { status(key, "Nuotraukoje nerasta šios rinkos koeficientų.", "err"); return; }
+    state.rows[key] = rows;
+    if (key === "hcp" || (!state.home && !state.away)) {
+      if (res.home && typeof res.home === "string") { state.home = res.home; $("homeName").value = res.home; }
+      if (res.away && typeof res.away === "string") { state.away = res.away; $("awayName").value = res.away; }
+    }
+    save(); renderRows(key);
+    status(key, `Nuskaityta ${rows.length} eil. Patikrinkite skaičius.`, "ok");
+    if (images[key].length > maxImgs) status(key, `Nuskaitytos pirmos ${maxImgs} nuotraukos iš ${images[key].length}.`, "ok");
+  } catch (e) {
+    if (e && e.code === "cancelled") status(key, "");
+    else status(key, ERR[e && e.code] || "Nepavyko nuskaityti. Bandykite dar kartą.", "err");
+    if (e && (e.code === "not_granted" || e.code === "sampling_disabled")) disableScan(ERR[e.code]);
+  } finally { btn.disabled = false; }
+}
+function disableScan(msg) {
+  sample = null;
+  document.querySelectorAll(".scan, #scanAll").forEach(b => b.hidden = true);
+  $("globalNote").textContent = msg + " Koeficientus galite įvesti ranka mygtuku „+ Eilutė“.";
+  $("globalNote").classList.add("warn");
+}
+
+// ---------- events ----------
+$("markets").innerHTML = MARKETS.map(panelHTML).join("");
+$("homeName").value = state.home || ""; $("awayName").value = state.away || "";
+MARKETS.forEach(m => { renderRows(m.key); renderThumbs(m.key); });
+
+$("homeName").addEventListener("input", e => { state.home = e.target.value.trim(); save(); updateComputed("hcp"); });
+$("awayName").addEventListener("input", e => { state.away = e.target.value.trim(); save(); updateComputed("hcp"); });
+
+const markets = $("markets");
+markets.addEventListener("pointerdown", e => { const p = e.target.closest(".panel"); if (p) setActive(p.dataset.m); });
+markets.addEventListener("focusin", e => { const p = e.target.closest(".panel"); if (p) setActive(p.dataset.m); });
+markets.addEventListener("click", e => {
+  const t = e.target;
+  const drop = t.closest(".drop");
+  if (t.dataset.rmimg) {
+    const [k, i] = t.dataset.rmimg.split(":"); URL.revokeObjectURL(images[k][+i].url); images[k].splice(+i, 1); renderThumbs(k); status(k, ""); return;
+  }
+  if (drop && t.tagName !== "INPUT") { $("file-" + drop.dataset.drop).click(); return; }
+  if (t.dataset.scan) scan(t.dataset.scan);
+  else if (t.dataset.add) { state.rows[t.dataset.add].push({ l: "", a: "", b: "" }); save(); renderRows(t.dataset.add);
+    const ins = $("rows-" + t.dataset.add).querySelectorAll("tr:last-child input"); ins[0] && ins[0].focus(); }
+  else if (t.dataset.clear) { const k = t.dataset.clear; state.rows[k] = []; images[k].forEach(x => URL.revokeObjectURL(x.url)); images[k] = [];
+    save(); renderRows(k); renderThumbs(k); status(k, ""); $("calc-" + k).value = ""; calcOut(k); }
+  else if (t.dataset.del !== undefined) { const k = t.closest(".panel").dataset.m; state.rows[k].splice(+t.dataset.del, 1); save(); renderRows(k); }
+});
+markets.addEventListener("keydown", e => {
+  const drop = e.target.closest(".drop");
+  if (drop && e.target === drop && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("file-" + drop.dataset.drop).click(); }
+});
+markets.addEventListener("change", e => {
+  if (e.target.type === "file") { addImages(e.target.id.slice(5), e.target.files); e.target.value = ""; }
+});
+markets.addEventListener("input", e => {
+  const t = e.target, k = t.closest(".panel")?.dataset.m;
+  if (!k) return;
+  if (t.id === "calc-" + k) { calcOut(k); return; }
+  const tr = t.closest("tr[data-i]");
+  if (tr && t.dataset.f) { state.rows[k][+tr.dataset.i][t.dataset.f] = t.value; save(); updateComputed(k); }
+});
+markets.addEventListener("dragover", e => { const d = e.target.closest(".drop"); if (d) { e.preventDefault(); d.classList.add("over"); } });
+markets.addEventListener("dragleave", e => { const d = e.target.closest(".drop"); if (d) d.classList.remove("over"); });
+markets.addEventListener("drop", e => {
+  const d = e.target.closest(".drop"); if (!d) return;
+  e.preventDefault(); d.classList.remove("over"); addImages(d.dataset.drop, e.dataTransfer.files);
+});
+document.addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === "file" && i.type.startsWith("image/")).map(i => i.getAsFile());
+  if (!files.length) return;
+  e.preventDefault(); addImages(active, files);
+});
+$("scanAll").addEventListener("click", async () => {
+  const keys = MARKETS.map(m => m.key).filter(k => images[k].length);
+  if (!keys.length) { $("globalNote").textContent = "Įkelkite bent vieną nuotrauką į kurią nors rinką."; return; }
+  $("scanAll").disabled = true;
+  await Promise.all(keys.map(scan));
+  $("scanAll").disabled = false;
+});
+$("resetAll").addEventListener("click", () => {
+  MARKETS.forEach(m => { state.rows[m.key] = []; images[m.key].forEach(x => URL.revokeObjectURL(x.url)); images[m.key] = [];
+    renderRows(m.key); renderThumbs(m.key); status(m.key, ""); $("calc-" + m.key).value = ""; calcOut(m.key); });
+  state.home = ""; state.away = ""; $("homeName").value = ""; $("awayName").value = "";
+  save(); updateComputed("hcp"); setActive("hcp");
+});
+
+// Light up screenshot reading when Claude is available.
+document.querySelectorAll(".scan, #scanAll").forEach(b => b.disabled = true);
+(async () => {
+  const s = window.claude?.use ? await window.claude.use("sample") : null;
+  if (!s) { disableScan("Nuotraukų nuskaitymas veikia tik atidarius programą Claude."); return; }
+  const lim = await s.limits().catch(() => null);
+  if (!lim?.images) { disableScan("Šiame lange nuotraukų nuskaitymas nepasiekiamas."); return; }
+  sample = s; maxImgs = lim.images.maxCount || 5;
+  document.querySelectorAll(".scan, #scanAll").forEach(b => b.disabled = false);
+})();
+</script>
