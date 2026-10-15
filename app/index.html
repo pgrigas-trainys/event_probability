@@ -370,6 +370,17 @@ function renderSummary() {
     let extra = "";
     if (F.hcp && F.tot && (F.home || F.away)) extra = ` · komandų rinkos: ${F.home ? F.home.mu.toFixed(1) : "–"} : ${F.away ? F.away.mu.toFixed(1) : "–"}`;
     cards.push(`<div class="kpi"><small>Tikėtinas rezultatas</small><b class="num">${h.toFixed(0)} : ${a.toFixed(0)}</b><span>${src}${extra}</span></div>`);
+    const SM = scoreModel(F);
+    if (F.hcp && F.tot) {
+      let alt = "";
+      if (F.home && F.away) {
+        const r2 = (F.tot.sigma ** 2 - F.home.sigma ** 2 - F.away.sigma ** 2) / (2 * F.home.sigma * F.away.sigma);
+        alt = ` · pagal komandų rinkas ${r2.toFixed(3)}`;
+      }
+      cards.push(`<div class="kpi"><small>Koreliacija ρ (namai–svečiai)</small><b class="num">${SM.rho.toFixed(3)}</b><span>iš σ sumos ${F.tot.sigma.toFixed(1)} ir σ skirtumo ${F.hcp.sigma.toFixed(1)}${alt}</span></div>`);
+    } else {
+      cards.push(`<div class="kpi"><small>Koreliacija ρ (namai–svečiai)</small><b class="num">0.000</b><span>laikoma 0: įvertinti reikia handikapo ir taškų sumos</span></div>`);
+    }
   } else {
     if (F.home) cards.push(`<div class="kpi"><small>${esc(homeN())} taškai</small><b class="num">${F.home.mu.toFixed(1)}</b><span>σ ${F.home.sigma.toFixed(1)}</span></div>`);
     if (F.away) cards.push(`<div class="kpi"><small>${esc(awayN())} taškai</small><b class="num">${F.away.mu.toFixed(1)}</b><span>σ ${F.away.sigma.toFixed(1)}</span></div>`);
@@ -500,7 +511,7 @@ function renderCS(F) {
   }).join("");
   $("csBoard").innerHTML = `<table class="heat${step === 1 ? " fine" : ""}"><thead><tr><th class="corner"><b>${esc(homeN())}</b> ↓<br><i>${esc(awayN())}</i> →</th>${hdr}</tr></thead><tbody>${body}</tbody></table>`;
   centerTop();
-  $("csInfo").innerHTML = `${esc(homeN())} <b>${mh.toFixed(1)}</b> · ${esc(awayN())} <b>${ma.toFixed(1)}</b> · ${M.src}`;
+  $("csInfo").innerHTML = `${esc(homeN())} <b>${mh.toFixed(1)}</b> · ${esc(awayN())} <b>${ma.toFixed(1)}</b> · ρ <b>${rho.toFixed(3)}</b> · ${M.src}`;
   const top = cells.filter(c => c[0] !== c[1]).sort((x, y) => y[2] - x[2]).slice(0, 10);
   $("csTop").innerHTML = top.map(([h, a, p], i) =>
     `<div class="r"><span>${i + 1}</span><b><span class="h">${h}</span> : <span class="a">${a}</span></b><em>${(p * 100).toFixed(4)}%</em></div>`).join("");
