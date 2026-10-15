@@ -167,6 +167,8 @@ input[type=file] { display: none; }
 .qexamples { display: flex; gap: 6px; flex-wrap: wrap; }
 .qexamples button { border: 1px dashed var(--line); background: transparent; border-radius: 999px; padding: 3px 10px; font-size: .78rem; color: var(--muted); }
 .qexamples button:hover { color: var(--fg); border-color: var(--muted); }
+.engine-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
+.engine-bar .seg button { font-family: var(--f-body); font-size: .82rem; padding: 5px 12px; }
 </style>
 
 <div class="wrap">
@@ -178,6 +180,15 @@ input[type=file] { display: none; }
       <input id="awayName" aria-label="Svečių komanda" value=""><small>Svečiai</small>
     </div>
   </header>
+
+  <div class="engine-bar">
+    <span>Skaičiuoja</span>
+    <div class="seg" id="engine" role="group" aria-label="Skaičiavimo kalba">
+      <button type="button" data-eng="js" aria-pressed="true">JavaScript</button>
+      <button type="button" data-eng="py" aria-pressed="false">Python</button>
+    </div>
+    <span class="status" id="engStatus"></span>
+  </div>
 
   <nav class="tabs" role="tablist" aria-label="Rodinys">
     <button type="button" role="tab" id="tab-odds" aria-controls="view-odds" aria-selected="true">Koeficientai</button>
@@ -257,6 +268,92 @@ const MARKETS = [
     what: "the AWAY TEAM's own points total (over/under) market. line = the away team's points line, e.g. 77.5; a = decimal odds for OVER (Daugiau); b = decimal odds for UNDER (Mažiau). Ignore rows for the other team." },
 ];
 const KEY = "event-probability-v1";
+
+// ---------- skaičiavimo variklis: JavaScript (model.js) arba Python (model.py per Brython) ----------
+const JS_ENGINE = { rowCalc, fit, pOver, scoreModel, gridCells, conditionProbability };
+let E = JS_ENGINE;
+const BRYTHON = "https://cdn.jsdelivr.net/npm/brython@3.14.3/";
+const PY_BRIDGE = `
+import json
+from browser import window
+
+def _bridge(name, args_json):
+    a = json.loads(args_json)
+    if name == "row_calc":
+        r = row_calc(*a)
+        return json.dumps(vars(r) if r else None)
+    if name == "fit":
+        f = fit(a[0], [tuple(x) for x in a[1]])
+        return json.dumps(vars(f) if f else None)
+    if name == "p_over":
+        return json.dumps(p_over(Fit(**a[0]), a[1]))
+    if name == "score_model":
+        F = {k: (Fit(**v) if v else None) for k, v in a[0].items()}
+        M = score_model(F)
+        return json.dumps(vars(M) if M else None)
+    if name == "grid_cells":
+        return json.dumps(grid_cells(ScoreModel(**a[0])))
+    if name == "condition_probability":
+        return json.dumps(condition_probability(ScoreModel(**a[0]), [tuple(c) for c in a[1]]))
+    raise ValueError(name)
+
+window.pyBridge = _bridge
+`;
+const numRow = r => { const v = [r.l, r.a, r.b].map(x => parseFloat(String(x).replace(",", "."))); return v.every(isFinite) ? v : null; };
+// Tie patys Python skaičiavimai kartojasi kelis kartus per perpiešimą, todėl atsakymai įsimenami.
+const pyCache = new Map();
+const py = (name, args) => {
+  const key = name + JSON.stringify(args);
+  let out = pyCache.get(key);
+  if (out === undefined) { out = window.pyBridge(name, JSON.stringify(args)); if (pyCache.size > 300) pyCache.clear(); pyCache.set(key, out); }
+  return JSON.parse(out);
+};
+const PY_ENGINE = {
+  rowCalc: (m, r) => { const v = numRow(r); return v ? py("row_calc", [m.key, ...v]) : null; },
+  fit: (m, rows) => { const v = rows.map(numRow).filter(Boolean); return v.length ? py("fit", [m.key, v]) : null; },
+  pOver: (f, k) => py("p_over", [f, k]),
+  scoreModel: F => py("score_model", [F]),
+  gridCells: M => py("grid_cells", [M]),
+  conditionProbability: (M, conds) => py("condition_probability", [M, conds.map(c => [c.v, c.op, Number(c.x)])]),
+};
+const loadScript = src => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error(src)); document.head.append(s); });
+let pyReady = null;
+function loadPython() {
+  pyReady ||= (async () => {
+    await loadScript(BRYTHON + "brython.min.js");
+    await loadScript(BRYTHON + "brython_stdlib.js");
+    const src = (await (await fetch("model.py")).text()).replace(/\nif __name__ == "__main__":[\s\S]*$/, "\n");
+    window.brython?.({ debug: 0 });
+    __BRYTHON__.runPythonSource(src + "\n" + PY_BRIDGE, { name: "model" });
+    if (typeof window.pyBridge !== "function") throw new Error("Python neužsikrovė");
+  })();
+  pyReady.catch(() => { pyReady = null; });
+  return pyReady;
+}
+async function setEngine(name) {
+  const st = $("engStatus");
+  document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === name));
+  if (name === "py") {
+    st.className = "status"; st.textContent = "Kraunamas Python…";
+    try {
+      await loadPython();
+      const t0 = performance.now();
+      E = PY_ENGINE; refreshAll();
+      st.className = "status ok"; st.textContent = `Skaičiuoja Python (${Math.round(performance.now() - t0)} ms)`;
+    } catch (e) {
+      E = JS_ENGINE; refreshAll();
+      document.querySelectorAll("#engine button").forEach(b => b.setAttribute("aria-pressed", b.dataset.eng === "js"));
+      st.className = "status err"; st.textContent = "Python nepavyko užkrauti. Skaičiuoja JavaScript.";
+      state.engine = "js"; save(); return;
+    }
+  } else {
+    E = JS_ENGINE;
+    const t0 = performance.now(); refreshAll();
+    st.className = "status"; st.textContent = `Skaičiuoja JavaScript (${Math.round(performance.now() - t0)} ms)`;
+  }
+  state.engine = name; save();
+}
+function refreshAll() { MARKETS.forEach(m => updateComputed(m.key, true)); renderSummary(); }
 const SEED = {
   home: "Fenerbahce", away: "Partizan",
   rows: {
@@ -321,26 +418,26 @@ function renderRows(key) {
   updateComputed(key);
 }
 
-function updateComputed(key) {
+function updateComputed(key, skipSummary) {
   const m = MARKETS.find(x => x.key === key);
   const trs = $("rows-" + key).querySelectorAll("tr[data-i]");
   trs.forEach(tr => {
-    const c = rowCalc(m, state.rows[key][+tr.dataset.i]);
+    const c = E.rowCalc(m, state.rows[key][+tr.dataset.i]);
     const [pa, pb, mg] = tr.querySelectorAll("td.pa, td.pb, td.m");
     pa.textContent = c ? pct(c.pa) : "–"; pb.textContent = c ? pct(c.pb) : "–"; mg.textContent = c ? pct(c.margin) : "";
   });
-  const f = fit(m, state.rows[key]);
+  const f = E.fit(m, state.rows[key]);
   $("fit-" + key).innerHTML = f
     ? (key === "hcp" ? `Vid. pranašumas <b>${sgn(f.mu)}</b>` : `Vidurkis <b>${f.mu.toFixed(1)}</b>`) + ` · σ <b>${f.sigma.toFixed(1)}</b>${f.assumed ? " (numatyta)" : ""}`
     : "";
   if (key === "hcp") { $("ha-hcp").textContent = homeN(); $("hb-hcp").textContent = awayN(); }
   calcOut(key);
-  renderSummary();
+  if (!skipSummary) renderSummary();
 }
 
 function calcOut(key) {
   const m = MARKETS.find(x => x.key === key);
-  const f = fit(m, state.rows[key]);
+  const f = E.fit(m, state.rows[key]);
   const raw = $("calc-" + key).value.trim().replace(",", ".");
   const out = $("out-" + key);
   if (!raw) { out.textContent = "Įveskite liniją, kad pamatytumėte tikimybę."; return; }
@@ -348,19 +445,19 @@ function calcOut(key) {
   if (!isFinite(L)) { out.textContent = "Įveskite skaičių, pvz. -5.5."; return; }
   if (!f) { out.textContent = "Pirmiausia reikia koeficientų."; return; }
   if (key === "hcp") {
-    const p = pOver(f, -L);
+    const p = E.pOver(f, -L);
     out.innerHTML = `${esc(homeN())} ${L > 0 ? "+" : ""}${L}: <b>${pct(p)}</b> · ${esc(awayN())} ${-L > 0 ? "+" : ""}${-L}: <b>${pct(1 - p)}</b>`;
   } else {
-    const p = pOver(f, L);
+    const p = E.pOver(f, L);
     out.innerHTML = `Daugiau ${L}: <b>${pct(p)}</b> · Mažiau ${L}: <b>${pct(1 - p)}</b>`;
   }
 }
 
 function renderSummary() {
-  const F = Object.fromEntries(MARKETS.map(m => [m.key, fit(m, state.rows[m.key])]));
+  const F = Object.fromEntries(MARKETS.map(m => [m.key, E.fit(m, state.rows[m.key])]));
   const cards = [];
   if (F.hcp) {
-    const pw = pOver(F.hcp, 0);
+    const pw = E.pOver(F.hcp, 0);
     cards.push(`<div class="kpi lead"><small>Laimės ${esc(homeN())}</small><b class="num">${pct(pw)}</b>
       <span>${esc(awayN())}: ${pct(1 - pw)}</span><div class="bar2"><i class="h" style="width:${pw * 100}%"></i><i class="a" style="width:${(1 - pw) * 100}%"></i></div></div>`);
     cards.push(`<div class="kpi"><small>Tikėtinas skirtumas</small><b class="num">${sgn(F.hcp.mu)}</b><span>${esc(homeN())} naudai · σ ${F.hcp.sigma.toFixed(1)}</span></div>`);
@@ -373,7 +470,7 @@ function renderSummary() {
     let extra = "";
     if (F.hcp && F.tot && (F.home || F.away)) extra = ` · komandų rinkos: ${F.home ? F.home.mu.toFixed(1) : "–"} : ${F.away ? F.away.mu.toFixed(1) : "–"}`;
     cards.push(`<div class="kpi"><small>Tikėtinas rezultatas</small><b class="num">${h.toFixed(0)} : ${a.toFixed(0)}</b><span>${src}${extra}</span></div>`);
-    const SM = scoreModel(F);
+    const SM = E.scoreModel(F);
     if (F.hcp && F.tot) {
       let alt = "";
       if (F.home && F.away) {
@@ -464,7 +561,7 @@ function disableScan(msg) {
 
 // ---------- correct score ----------
 function renderCS(F) {
-  const M = scoreModel(F);
+  const M = E.scoreModel(F);
   const step = [1, 3, 5].includes(state.csStep) ? state.csStep : 5;
   document.querySelectorAll("#csStep button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.step === step));
   if (!M) {
@@ -474,7 +571,7 @@ function renderCS(F) {
     return;
   }
   const { mh, ma, sh, sa } = M, rho = Math.max(-0.95, Math.min(0.95, M.rho));
-  const cells = gridCells(M); // the same score grid the Conditions tab uses
+  const cells = E.gridCells(M); // the same score grid the Conditions tab uses
   // Buckets aligned to multiples of step, tails folded into the edge buckets (about ±2.5σ).
   const span = step === 1 ? 2 : 2.5;
   const bLo = (m, s) => Math.floor((m - span * s) / step), bHi = (m, s) => Math.floor((m + span * s) / step);
@@ -527,13 +624,13 @@ function condsHTML() {
 }
 function renderConds() { $("conds").innerHTML = condsHTML(); }
 function renderQ(F) {
-  F ||= Object.fromEntries(MARKETS.map(m => [m.key, fit(m, state.rows[m.key])]));
-  const M = scoreModel(F);
+  F ||= Object.fromEntries(MARKETS.map(m => [m.key, E.fit(m, state.rows[m.key])]));
+  const M = E.scoreModel(F);
   const conds = state.conds.map(c => ({ f: VARS.find(v => v[0] === c.v)?.[1], op: OPS[c.op], x: parseFloat(String(c.x).replace(",", ".")) }))
     .filter(c => c.f && c.op && isFinite(c.x));
   if (!M) { $("qP").textContent = "–"; $("qFair").textContent = ""; $("qNote").textContent = "Reikia handikapo ir taškų sumos koeficientų skiltyje „Koeficientai“."; return; }
   if (!conds.length) { $("qP").textContent = "–"; $("qFair").textContent = ""; $("qNote").textContent = "Pridėkite bent vieną sąlygą."; return; }
-  const p = conditionProbability(M, state.conds.filter(c => VARS.some(v => v[0] === c.v) && OPS[c.op] && isFinite(parseFloat(String(c.x).replace(",", "."))))
+  const p = E.conditionProbability(M, state.conds.filter(c => VARS.some(v => v[0] === c.v) && OPS[c.op] && isFinite(parseFloat(String(c.x).replace(",", "."))))
     .map(c => ({ v: c.v, op: c.op, x: parseFloat(String(c.x).replace(",", ".")) })));
   $("qP").textContent = pct(p);
   $("qFair").textContent = p > 0 ? `Teisingas koeficientas ${(1 / p).toFixed(2)}` : "";
@@ -605,6 +702,8 @@ $("markets").innerHTML = MARKETS.map(panelHTML).join("");
 $("homeName").value = state.home || ""; $("awayName").value = state.away || "";
 MARKETS.forEach(m => { renderRows(m.key); renderThumbs(m.key); });
 setTab(["cs", "q"].includes(state.tab) ? state.tab : "odds");
+$("engine").addEventListener("click", e => { const b = e.target.closest("[data-eng]"); if (b) setEngine(b.dataset.eng); });
+if (state.engine === "py") setEngine("py");
 
 $("homeName").addEventListener("input", e => { state.home = e.target.value.trim(); save(); updateComputed("hcp"); });
 $("awayName").addEventListener("input", e => { state.away = e.target.value.trim(); save(); updateComputed("hcp"); });
