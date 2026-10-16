@@ -682,6 +682,18 @@ async function loadCSV(file, key) {
     if (key) status(key, msg, "err"); else { $("globalNote").textContent = msg; $("globalNote").classList.add("warn"); }
     return;
   }
+  // Įkelta į konkrečią rinką ir faile tik viena rinka -> viskas eina į pasirinktą rinką,
+  // net jei stulpelyje „market“ parašyta kita (pvz. svečių taškai pažymėti kaip namų).
+  const fileMarkets = Object.keys(res.byMarket);
+  if (key && fileMarkets.length <= 1) {
+    const rows = [...(res.byMarket[fileMarkets[0]] || []), ...res.unassigned];
+    state.rows[key] = rows; renderRows(key); setActive(key); save();
+    const moved = fileMarkets.length && fileMarkets[0] !== key ? ` (faile pažymėta „${label(fileMarkets[0])}“)` : "";
+    status(key, `Įkelta iš CSV: ${rows.length} eil.${moved}`, "ok");
+    $("globalNote").classList.remove("warn");
+    $("globalNote").textContent = `${file.name}: įkelta ${label(key)} ${rows.length} eil.${moved}`;
+    return;
+  }
   const done = [];
   for (const [m, rows] of Object.entries(res.byMarket)) { state.rows[m] = rows; renderRows(m); status(m, `Įkelta iš CSV: ${rows.length} eil.`, "ok"); done.push(`${label(m)} ${rows.length}`); }
   if (res.unassigned.length) {
