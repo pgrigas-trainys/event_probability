@@ -624,24 +624,16 @@ function renderSummary() {
     cards.push(`<div class="kpi"><small>Tikėtinas skirtumas</small><b class="num">${sgn(F.hcp.mu)}</b><span>${esc(homeN())} naudai · σ ${F.hcp.sigma.toFixed(1)}</span></div>`);
   }
   if (F.tot) cards.push(`<div class="kpi"><small>Tikėtina taškų suma</small><b class="num">${F.tot.mu.toFixed(1)}</b><span>σ ${F.tot.sigma.toFixed(1)}</span></div>`);
-  let h = null, a = null, src = "";
-  if (F.hcp && F.tot) { h = (F.tot.mu + F.hcp.mu) / 2; a = (F.tot.mu - F.hcp.mu) / 2; src = "iš handikapo ir sumos"; }
-  else if (F.home && F.away) { h = F.home.mu; a = F.away.mu; src = "iš komandų taškų rinkų"; }
-  if (h !== null) {
-    let extra = "";
-    if (F.hcp && F.tot && (F.home || F.away)) extra = ` · komandų rinkos: ${F.home ? F.home.mu.toFixed(1) : "–"} : ${F.away ? F.away.mu.toFixed(1) : "–"}`;
-    cards.push(`<div class="kpi"><small>Tikėtinas rezultatas</small><b class="num">${h.toFixed(0)} : ${a.toFixed(0)}</b><span>${src}${extra}</span></div>`);
-    const SM = E.scoreModel(F);
-    if (F.hcp && F.tot) {
-      let alt = "";
-      if (F.home && F.away) {
-        const r2 = (F.tot.sigma ** 2 - F.home.sigma ** 2 - F.away.sigma ** 2) / (2 * F.home.sigma * F.away.sigma);
-        alt = ` · pagal komandų rinkas ${r2.toFixed(3)}`;
-      }
-      cards.push(`<div class="kpi"><small>Koreliacija <span style="text-transform:none">ρ</span> (namai–svečiai)</small><b class="num">${SM.rho.toFixed(3)}</b><span>iš σ sumos ${F.tot.sigma.toFixed(1)} ir σ skirtumo ${F.hcp.sigma.toFixed(1)}${alt}</span></div>`);
-    } else {
-      cards.push(`<div class="kpi"><small>Koreliacija <span style="text-transform:none">ρ</span> (namai–svečiai)</small><b class="num">0.000</b><span>laikoma 0: įvertinti reikia handikapo ir taškų sumos</span></div>`);
+  const SM = E.scoreModel(F);
+  if (SM) {
+    cards.push(`<div class="kpi"><small>Tikėtinas rezultatas</small><b class="num">${SM.mh.toFixed(0)} : ${SM.ma.toFixed(0)}</b><span>σ ${SM.sh.toFixed(1)} / ${SM.sa.toFixed(1)} · iš: ${esc(SM.src)}</span></div>`);
+    let why;
+    if (!F.hcp && !F.tot) why = "laikoma 0: koreliacijai įvertinti reikia sumos arba handikapo";
+    else {
+      const alt = [SM.rho_tot != null ? `pagal sumą ${SM.rho_tot.toFixed(3)}` : "", SM.rho_hcp != null ? `pagal handikapą ${SM.rho_hcp.toFixed(3)}` : ""].filter(Boolean);
+      why = `iš: ${esc(SM.src)}` + (alt.length ? ` · atskirai ${alt.join(", ")}` : "");
     }
+    cards.push(`<div class="kpi"><small>Koreliacija <span style="text-transform:none">ρ</span> (namai–svečiai)</small><b class="num">${SM.rho.toFixed(3)}</b><span>${why}</span></div>`);
   } else {
     if (F.home) cards.push(`<div class="kpi"><small>${esc(homeN())} taškai</small><b class="num">${F.home.mu.toFixed(1)}</b><span>σ ${F.home.sigma.toFixed(1)}</span></div>`);
     if (F.away) cards.push(`<div class="kpi"><small>${esc(awayN())} taškai</small><b class="num">${F.away.mu.toFixed(1)}</b><span>σ ${F.away.sigma.toFixed(1)}</span></div>`);
@@ -769,7 +761,7 @@ function renderCS(F) {
   document.querySelectorAll("#csStep button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.step === step));
   if (!M) {
     $("csInfo").textContent = "";
-    $("csBoard").innerHTML = `<p class="note">Lentelei reikia handikapo ir taškų sumos koeficientų (arba abiejų komandų taškų). Įveskite juos skiltyje „Koeficientai“.</p>`;
+    $("csBoard").innerHTML = `<p class="note">Lentelei reikia bent dviejų rinkų koeficientų (pvz. handikapo ir sumos arba abiejų komandų taškų). Įveskite juos skiltyje „Koeficientai“.</p>`;
     $("csTop").innerHTML = `<p class="note">Kol kas nėra duomenų.</p>`;
     return;
   }

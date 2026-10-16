@@ -93,19 +93,74 @@ class ScoreModel:
     sa: float   # svečių σ
     rho: float  # koreliacija tarp komandų taškų
     src: str
+    rho_tot: float | None = None  # ρ iš komandų taškų σ ir sumos σ (palyginimui)
+    rho_hcp: float | None = None  # ρ iš komandų taškų σ ir handikapo σ (palyginimui)
+
+
+# Namų (H) ir svečių (A) taškai – dvimatis normalusis skirstinys su μh, μa, σh, σa, ρ.
+# Kiekviena rinka duoda vidurkį ir dispersiją, tiesiškai priklausančius nuo nežinomųjų:
+#   handikapas  H − A:  μh − μa,   σh² + σa² − 2c        (c = ρ·σh·σa)
+#   suma        H + A:  μh + μa,   σh² + σa² + 2c
+#   namų taškai H:      μh,        σh²
+#   svečių      A:      μa,        σa²
+# Visos turimos rinkos sujungiamos svertiniu mažiausių kvadratų metodu (vidurkiai: svoris n/σ²,
+# dispersijos: n/σ⁴). Labai silpnos prielaidos σh = σa ir ρ = 0 lemia tik tai, ko rinkos neapibrėžia.
+SCORE_ROWS = {
+    "hcp": ((1, -1), (1, 1, -2), "handikapas"),
+    "tot": ((1, 1), (1, 1, 2), "suma"),
+    "home": ((1, 0), (1, 0, 0), "namų taškai"),
+    "away": ((0, 1), (0, 1, 0), "svečių taškai"),
+}
+
+
+def _wls(rows: list[tuple[tuple[float, ...], float, float]]) -> list[float] | None:
+    """Svertinis mažiausių kvadratų sprendinys (Gauso eliminacija); None, jei neapibrėžtas."""
+    n = len(rows[0][0])
+    A = [[0.0] * (n + 1) for _ in range(n)]
+    for x, y, w in rows:
+        for i in range(n):
+            for j in range(n):
+                A[i][j] += w * x[i] * x[j]
+            A[i][n] += w * x[i] * y
+    scale = max(abs(A[i][i]) for i in range(n)) or 1.0
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(A[r][c]))
+        if abs(A[p][c]) < 1e-12 * scale:
+            return None
+        A[c], A[p] = A[p], A[c]
+        for r in range(n):
+            if r != c:
+                f = A[r][c] / A[c][c]
+                for j in range(c, n + 1):
+                    A[r][j] -= f * A[c][j]
+    return [A[i][n] / A[i][i] for i in range(n)]
 
 
 def score_model(F: dict[str, Fit | None]) -> ScoreModel | None:
-    """Iš handikapo ir sumos: var(H) = var(A) = (σT² + σM²)/4, ρ = (σT² − σM²)/(σT² + σM²)."""
-    hcp, tot, home, away = (F.get(k) for k in ("hcp", "tot", "home", "away"))
-    if hcp and tot:
-        vT, vM = tot.sigma ** 2, hcp.sigma ** 2
-        s = math.sqrt((vT + vM) / 4)
-        return ScoreModel(mh=(tot.mu + hcp.mu) / 2, ma=(tot.mu - hcp.mu) / 2, sh=s, sa=s,
-                          rho=(vT - vM) / (vT + vM), src="handikapas + suma")
-    if home and away:
-        return ScoreModel(mh=home.mu, ma=away.mu, sh=home.sigma, sa=away.sigma, rho=0.0, src="komandų taškai")
-    return None
+    keys = [k for k in SCORE_ROWS if F.get(k)]
+    if not keys:
+        return None
+    mean = _wls([(SCORE_ROWS[k][0], F[k].mu, F[k].n / F[k].sigma ** 2) for k in keys])
+    if mean is None:
+        return None
+    v_rows = [(SCORE_ROWS[k][1], F[k].sigma ** 2, (1e-3 if F[k].assumed else 1.0) * F[k].n / F[k].sigma ** 4)
+              for k in keys]
+    w_max = max(r[2] for r in v_rows)
+    v_rows += [((1, -1, 0), 0.0, 1e-6 * w_max), ((0, 0, 1), 0.0, 1e-6 * w_max)]
+    vh, va, c = _wls(v_rows)
+    sh, sa = math.sqrt(max(vh, 1.0)), math.sqrt(max(va, 1.0))
+    rho = max(-0.95, min(0.95, c / (sh * sa)))
+    rho_tot = rho_hcp = None
+    real = lambda k: F.get(k) is not None and not F[k].assumed  # noqa: E731
+    if real("home") and real("away"):
+        vH, vA = F["home"].sigma ** 2, F["away"].sigma ** 2
+        d = 2 * math.sqrt(vH * vA)
+        if real("tot"):
+            rho_tot = (F["tot"].sigma ** 2 - vH - vA) / d
+        if real("hcp"):
+            rho_hcp = (vH + vA - F["hcp"].sigma ** 2) / d
+    return ScoreModel(mh=mean[0], ma=mean[1], sh=sh, sa=sa, rho=rho, src=" + ".join(SCORE_ROWS[k][2] for k in keys),
+                      rho_tot=rho_tot, rho_hcp=rho_hcp)
 
 
 def _grid_arrays(M: ScoreModel):
@@ -198,9 +253,13 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Taškų suma: {F['tot'].mu:.1f} (σ {F['tot'].sigma:.1f})")
     M = score_model(F)
     if not M:
-        print("Rezultato modeliui reikia handikapo ir sumos (arba abiejų komandų taškų).")
+        print("Rezultato modeliui reikia bent dviejų rinkų (pvz. handikapo ir sumos arba abiejų komandų taškų).")
         return
-    print(f"Tikėtinas rezultatas: {H} {M.mh:.1f} : {M.ma:.1f} {A}   ρ = {M.rho:.3f}   ({M.src})")
+    print(f"Tikėtinas rezultatas: {H} {M.mh:.1f} : {M.ma:.1f} {A}   σ {M.sh:.1f} / {M.sa:.1f}   ρ = {M.rho:.3f}   ({M.src})")
+    if M.rho_tot is not None or M.rho_hcp is not None:
+        parts = [f"pagal sumą {M.rho_tot:.3f}" if M.rho_tot is not None else "",
+                 f"pagal handikapą {M.rho_hcp:.3f}" if M.rho_hcp is not None else ""]
+        print("ρ atskirai: " + " · ".join(p for p in parts if p))
     cells = sorted((c for c in grid_cells(M) if c[0] != c[1]), key=lambda c: -c[2])[: args.top]
     print("\nTikėtiniausi rezultatai:")
     for i, (h, a, p) in enumerate(cells, 1):

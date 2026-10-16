@@ -35,6 +35,29 @@ conds <- list(list(v = "home", op = ">", x = 75), list(v = "away", op = ">", x =
 p_both <- condition_probability(M, conds)
 near(p_both, 0.1018, 2e-3, "abi > 75 ir laimi Partizan (sutampa su JS ir Python)")
 
+# Bendras modelis: koeficientai iš žinomų parametrų (μh 88, μa 77, σh 11, σa 9, ρ 0.3), marža 5 %.
+gen <- function(key, mu, sd, lines) {
+  k <- if (key == "hcp") -lines else lines
+  p <- 1 - pnorm((k - mu) / sd)
+  cbind(lines, 1 / (p * 1.025), 1 / ((1 - p) * 1.025))
+}
+cv <- 0.3 * 11 * 9
+G <- list(
+  hcp  = fit_market("hcp",  gen("hcp", 11, sqrt(11^2 + 9^2 - 2 * cv), c(-16.5, -13.5, -10.5, -7.5, -4.5))),
+  tot  = fit_market("tot",  gen("tot", 165, sqrt(11^2 + 9^2 + 2 * cv), c(157.5, 162.5, 165.5, 168.5, 173.5))),
+  home = fit_market("home", gen("home", 88, 11, c(82.5, 86.5, 88.5, 90.5, 94.5))),
+  away = fit_market("away", gen("away", 77, 9, c(72.5, 75.5, 77.5, 79.5, 82.5))))
+GM <- score_model(G)
+near(GM$mh, 88, 0.05, "bendras: namų vidurkis"); near(GM$ma, 77, 0.05, "bendras: svečių vidurkis")
+near(GM$sh, 11, 0.05, "bendras: σ namų"); near(GM$sa, 9, 0.05, "bendras: σ svečių")
+near(GM$rho, 0.3, 0.005, "bendras: ρ")
+near(GM$rho_tot, 0.3, 0.005, "ρ pagal sumą"); near(GM$rho_hcp, 0.3, 0.005, "ρ pagal handikapą")
+stopifnot(GM$src == "handikapas + suma + namų taškai + svečių taškai")
+near(score_model(G[c("home", "away")])$rho, 0, 1e-6, "tik komandų taškai: ρ = 0")
+three <- score_model(G[c("hcp", "tot", "home")])
+near(three$sa, 9, 0.05, "be svečių rinkos: σ svečių"); near(three$rho, 0.3, 0.005, "be svečių rinkos: ρ")
+stopifnot(is.null(score_model(G["hcp"])))
+
 # Nepriklausomas patikrinimas: 2 mln. dvimačio normaliojo imčių per Cholesky, suapvalinta iki sveikų taškų
 set.seed(1)
 n <- 2e6

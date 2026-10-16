@@ -51,17 +51,50 @@ fit_market <- function(market, rows) {
 p_over <- function(f, k) 1 - pnorm((k - f$mu) / f$sigma)
 
 # ---------- rezultato modelis ----------
-# Iš handikapo ir sumos: var(H) = var(A) = (σT² + σM²)/4, ρ = (σT² − σM²)/(σT² + σM²).
+# Namų (H) ir svečių (A) taškai – dvimatis normalusis skirstinys su μh, μa, σh, σa, ρ.
+# Kiekviena rinka duoda vidurkį ir dispersiją, tiesiškai priklausančius nuo nežinomųjų:
+#   handikapas  H − A:  μh − μa,   σh² + σa² − 2c        (c = ρ·σh·σa)
+#   suma        H + A:  μh + μa,   σh² + σa² + 2c
+#   namų taškai H:      μh,        σh²
+#   svečių      A:      μa,        σa²
+# Visos turimos rinkos sujungiamos svertiniu mažiausių kvadratų metodu (vidurkiai: svoris n/σ²,
+# dispersijos: n/σ⁴). Labai silpnos prielaidos σh = σa ir ρ = 0 lemia tik tai, ko rinkos neapibrėžia.
+SCORE_ROWS <- list(
+  hcp  = list(m = c(1, -1), v = c(1, 1, -2), name = "handikapas"),
+  tot  = list(m = c(1, 1),  v = c(1, 1, 2),  name = "suma"),
+  home = list(m = c(1, 0),  v = c(1, 0, 0),  name = "namų taškai"),
+  away = list(m = c(0, 1),  v = c(0, 1, 0),  name = "svečių taškai"))
+
+.wls <- function(X, y, w) {
+  A <- crossprod(X, w * X)
+  if (rcond(A) < 1e-12) return(NULL)
+  as.vector(solve(A, crossprod(X, w * y)))
+}
+
 score_model <- function(F) {
-  if (!is.null(F$hcp) && !is.null(F$tot)) {
-    vT <- F$tot$sigma^2; vM <- F$hcp$sigma^2; s <- sqrt((vT + vM) / 4)
-    return(list(mh = (F$tot$mu + F$hcp$mu) / 2, ma = (F$tot$mu - F$hcp$mu) / 2,
-                sh = s, sa = s, rho = (vT - vM) / (vT + vM), src = "handikapas + suma"))
+  keys <- Filter(function(k) !is.null(F[[k]]), names(SCORE_ROWS))
+  if (!length(keys)) return(NULL)
+  num <- function(k, f) as.numeric(F[[k]][[f]])
+  sig2 <- vapply(keys, function(k) num(k, "sigma")^2, 0)
+  n <- vapply(keys, function(k) num(k, "n"), 0)
+  assumed <- vapply(keys, function(k) isTRUE(F[[k]]$assumed), TRUE)
+  Xm <- do.call(rbind, lapply(keys, function(k) SCORE_ROWS[[k]]$m))
+  mean <- .wls(Xm, vapply(keys, function(k) num(k, "mu"), 0), n / sig2)
+  if (is.null(mean)) return(NULL)
+  wv <- ifelse(assumed, 1e-3, 1) * n / sig2^2
+  Xv <- rbind(do.call(rbind, lapply(keys, function(k) SCORE_ROWS[[k]]$v)), c(1, -1, 0), c(0, 0, 1))
+  v <- .wls(Xv, c(sig2, 0, 0), c(wv, 1e-6 * max(wv), 1e-6 * max(wv)))
+  sh <- sqrt(max(v[1], 1)); sa <- sqrt(max(v[2], 1))
+  rho <- max(-0.95, min(0.95, v[3] / (sh * sa)))
+  real <- function(k) !is.null(F[[k]]) && !isTRUE(F[[k]]$assumed)
+  rho_tot <- NA_real_; rho_hcp <- NA_real_
+  if (real("home") && real("away")) {
+    vH <- num("home", "sigma")^2; vA <- num("away", "sigma")^2; d <- 2 * sqrt(vH * vA)
+    if (real("tot")) rho_tot <- (num("tot", "sigma")^2 - vH - vA) / d
+    if (real("hcp")) rho_hcp <- (vH + vA - num("hcp", "sigma")^2) / d
   }
-  if (!is.null(F$home) && !is.null(F$away))
-    return(list(mh = F$home$mu, ma = F$away$mu, sh = F$home$sigma, sa = F$away$sigma,
-                rho = 0, src = "komandų taškai"))
-  NULL
+  list(mh = mean[1], ma = mean[2], sh = sh, sa = sa, rho = rho, rho_tot = rho_tot, rho_hcp = rho_hcp,
+       src = paste(vapply(keys, function(k) SCORE_ROWS[[k]]$name, ""), collapse = " + "))
 }
 
 # Visi sveiki rezultatai h : a per ±5σ su dvimačio normaliojo tankiu, sunormuoti iki 1.
@@ -133,8 +166,12 @@ main <- function(args = commandArgs(trailingOnly = TRUE)) {
     cat(sprintf("%s laimi: %.2f%%   skirtumas %+.1f (σ %.1f)\n", H, p_over(F$hcp, 0) * 100, F$hcp$mu, F$hcp$sigma))
   if (!is.null(F$tot)) cat(sprintf("Taškų suma: %.1f (σ %.1f)\n", F$tot$mu, F$tot$sigma))
   M <- score_model(F)
-  if (is.null(M)) { cat("Rezultato modeliui reikia handikapo ir sumos (arba abiejų komandų taškų).\n"); return(invisible()) }
-  cat(sprintf("Tikėtinas rezultatas: %s %.1f : %.1f %s   ρ = %.3f   (%s)\n", H, M$mh, M$ma, A, M$rho, M$src))
+  if (is.null(M)) { cat("Rezultato modeliui reikia bent dviejų rinkų (pvz. handikapo ir sumos arba abiejų komandų taškų).\n"); return(invisible()) }
+  cat(sprintf("Tikėtinas rezultatas: %s %.1f : %.1f %s   σ %.1f / %.1f   ρ = %.3f   (%s)\n",
+              H, M$mh, M$ma, A, M$sh, M$sa, M$rho, M$src))
+  alt <- c(if (is.finite(M$rho_tot)) sprintf("pagal sumą %.3f", M$rho_tot),
+           if (is.finite(M$rho_hcp)) sprintf("pagal handikapą %.3f", M$rho_hcp))
+  if (length(alt)) cat("ρ atskirai:", paste(alt, collapse = " · "), "\n")
   g <- grid_cells(M); g <- g[g$h != g$a, ]; g <- head(g[order(-g$p), ], opt$top)
   cat("\nTikėtiniausi rezultatai:\n")
   for (j in seq_len(nrow(g))) cat(sprintf("  %2d. %d : %d   %.2f%%\n", j, g$h[j], g$a[j], g$p[j] * 100))

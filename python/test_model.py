@@ -77,7 +77,43 @@ def test_against_scipy(F, M):
     print(f"SciPy palyginimas: sąlyga {p * 100:.2f}% (modelis) vs {mc * 100:.2f}% (Monte Carlo)")
 
 
+def test_joint_model():
+    """Bendras modelis: koeficientai iš žinomų parametrų (μh 88, μa 77, σh 11, σa 9, ρ 0.3), marža 5 %."""
+    mh, ma, sh, sa, rho = 88, 77, 11, 9, 0.3
+    cov = rho * sh * sa
+
+    def gen(key, mu, sd, lines):
+        out = []
+        for l in lines:
+            k = -l if key == "hcp" else l
+            p = 1 - m.N.cdf((k - mu) / sd)
+            out.append((l, 1 / (p * 1.025), 1 / ((1 - p) * 1.025)))
+        return out
+
+    G = {
+        "hcp": m.fit("hcp", gen("hcp", mh - ma, math.sqrt(sh**2 + sa**2 - 2 * cov), [-16.5, -13.5, -10.5, -7.5, -4.5])),
+        "tot": m.fit("tot", gen("tot", mh + ma, math.sqrt(sh**2 + sa**2 + 2 * cov), [157.5, 162.5, 165.5, 168.5, 173.5])),
+        "home": m.fit("home", gen("home", mh, sh, [82.5, 86.5, 88.5, 90.5, 94.5])),
+        "away": m.fit("away", gen("away", ma, sa, [72.5, 75.5, 77.5, 79.5, 82.5])),
+    }
+    M = m.score_model(G)
+    near(M.mh, 88, 0.05, "bendras: namų vidurkis")
+    near(M.ma, 77, 0.05, "bendras: svečių vidurkis")
+    near(M.sh, 11, 0.05, "bendras: σ namų")
+    near(M.sa, 9, 0.05, "bendras: σ svečių")
+    near(M.rho, 0.3, 0.005, "bendras: ρ")
+    near(M.rho_tot, 0.3, 0.005, "ρ pagal sumą")
+    near(M.rho_hcp, 0.3, 0.005, "ρ pagal handikapą")
+    assert M.src == "handikapas + suma + namų taškai + svečių taškai"
+    near(m.score_model({"home": G["home"], "away": G["away"]}).rho, 0, 1e-6, "tik komandų taškai: ρ = 0")
+    three = m.score_model({"hcp": G["hcp"], "tot": G["tot"], "home": G["home"]})
+    near(three.sa, 9, 0.05, "be svečių rinkos: σ svečių")
+    near(three.rho, 0.3, 0.005, "be svečių rinkos: ρ")
+    assert m.score_model({"hcp": G["hcp"]}) is None
+
+
 if __name__ == "__main__":
     F, M = test_model()
+    test_joint_model()
     test_against_scipy(F, M)
     print("Visi Python testai praėjo.")

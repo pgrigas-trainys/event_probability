@@ -37,6 +37,36 @@ near(SM.rho, 0.491, 0.01, "koreliacija");
 const cells = M.gridCells(SM);
 near(cells.reduce((s, c) => s + c[2], 0), 1, 1e-9, "tinklelio suma");
 
+// Bendras modelis iš visų keturių rinkų: koeficientai sugeneruoti iš žinomų parametrų
+// (μh 88, μa 77, σh 11, σa 9, ρ 0.3) su 5 % marža; modelis turi juos atkurti.
+const TRUE = { mh: 88, ma: 77, sh: 11, sa: 9, rho: 0.3 };
+const cov = TRUE.rho * TRUE.sh * TRUE.sa;
+const gen = (key, mu, sd, lines) => lines.map(l => {
+  const k = key === "hcp" ? -l : l, p = 1 - M.Phi((k - mu) / sd);
+  return { l, a: 1 / (p * 1.025), b: 1 / ((1 - p) * 1.025) };
+});
+const mk = key => ({ key, sigma0: { hcp: 12, tot: 16, home: 10, away: 10 }[key] });
+const G = {
+  hcp: M.fit(mk("hcp"), gen("hcp", TRUE.mh - TRUE.ma, Math.sqrt(TRUE.sh ** 2 + TRUE.sa ** 2 - 2 * cov), [-16.5, -13.5, -10.5, -7.5, -4.5])),
+  tot: M.fit(mk("tot"), gen("tot", TRUE.mh + TRUE.ma, Math.sqrt(TRUE.sh ** 2 + TRUE.sa ** 2 + 2 * cov), [157.5, 162.5, 165.5, 168.5, 173.5])),
+  home: M.fit(mk("home"), gen("home", TRUE.mh, TRUE.sh, [82.5, 86.5, 88.5, 90.5, 94.5])),
+  away: M.fit(mk("away"), gen("away", TRUE.ma, TRUE.sa, [72.5, 75.5, 77.5, 79.5, 82.5])),
+};
+const GM = M.scoreModel(G);
+near(GM.mh, 88, 0.05, "bendras: namų vidurkis"); near(GM.ma, 77, 0.05, "bendras: svečių vidurkis");
+near(GM.sh, 11, 0.05, "bendras: σ namų"); near(GM.sa, 9, 0.05, "bendras: σ svečių");
+near(GM.rho, 0.3, 0.005, "bendras: ρ"); near(GM.rho_tot, 0.3, 0.005, "ρ pagal sumą"); near(GM.rho_hcp, 0.3, 0.005, "ρ pagal handikapą");
+assert.equal(GM.src, "handikapas + suma + namų taškai + svečių taškai");
+// Be bendrų rinkų koreliacija neįvertinama (0), be komandų rinkų σ laikomos lygiomis.
+const onlyTeams = M.scoreModel({ home: G.home, away: G.away });
+near(onlyTeams.rho, 0, 1e-6, "tik komandų taškai: ρ = 0"); near(onlyTeams.sh, 11, 0.05, "tik komandų taškai: σ namų");
+const noTeams = M.scoreModel({ hcp: G.hcp, tot: G.tot });
+near(noTeams.sh, noTeams.sa, 1e-6, "be komandų rinkų σ vienodos");
+// Suma + vienos komandos taškai: likusi komanda ir ρ įvertinami iš likusių rinkų.
+const three = M.scoreModel({ hcp: G.hcp, tot: G.tot, home: G.home });
+near(three.sa, 9, 0.05, "be svečių rinkos: σ svečių"); near(three.rho, 0.3, 0.005, "be svečių rinkos: ρ");
+assert.equal(M.scoreModel({ hcp: G.hcp }), null, "vien handikapo nepakanka");
+
 // Sąlygos
 const pAway = M.conditionProbability(SM, [{ v: "diff", op: "<", x: 0 }]);
 const pHome = M.conditionProbability(SM, [{ v: "diff", op: ">", x: 0 }]);

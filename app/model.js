@@ -46,14 +46,54 @@ const pOver = (f, k) => 1 - Phi((k - f.mu) / f.sigma);
 
 // ---------- rezultato modelis ----------
 // F = {hcp, tot, home, away}: kiekvienos rinkos fit() rezultatas arba null.
-function scoreModel(F) {
-  if (F.hcp && F.tot) {
-    const vT = F.tot.sigma ** 2, vM = F.hcp.sigma ** 2;
-    const s = Math.sqrt((vT + vM) / 4);
-    return { mh: (F.tot.mu + F.hcp.mu) / 2, ma: (F.tot.mu - F.hcp.mu) / 2, sh: s, sa: s, rho: (vT - vM) / (vT + vM), src: "handikapas + suma" };
+//
+// Namų (H) ir svečių (A) taškai laikomi dvimačiu normaliuoju skirstiniu su μh, μa, σh, σa, ρ.
+// Kiekviena rinka duoda vidurkį ir dispersiją, kurie tiesiškai priklauso nuo nežinomųjų:
+//   handikapas  H − A:  μh − μa,   σh² + σa² − 2c        (c = ρ·σh·σa)
+//   suma        H + A:  μh + μa,   σh² + σa² + 2c
+//   namų taškai H:      μh,        σh²
+//   svečių      A:      μa,        σa²
+// Visos turimos rinkos sujungiamos svertiniu mažiausių kvadratų metodu (vidurkiai: svoris n/σ²,
+// dispersijos: svoris n/σ⁴, t. y. pagal santykinę paklaidą). Kai duomenų nepakanka, labai silpnos
+// prielaidos σh = σa ir ρ = 0 nulemia tik tai, ko rinkos neapibrėžia.
+const SCORE_ROWS = {
+  hcp: { m: [1, -1], v: [1, 1, -2], name: "handikapas" },
+  tot: { m: [1, 1], v: [1, 1, 2], name: "suma" },
+  home: { m: [1, 0], v: [1, 0, 0], name: "namų taškai" },
+  away: { m: [0, 1], v: [0, 1, 0], name: "svečių taškai" },
+};
+function wls(rows) { // rows: [x[], y, w] -> mažiausių kvadratų sprendinys arba null
+  const n = rows[0][0].length, A = Array.from({ length: n }, () => Array(n + 1).fill(0));
+  for (const [x, y, w] of rows) for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) A[i][j] += w * x[i] * x[j]; A[i][n] += w * x[i] * y; }
+  const scale = Math.max(...A.map((r, i) => Math.abs(r[i]))) || 1;
+  for (let c = 0; c < n; c++) { // Gauso eliminacija su pagrindinio elemento parinkimu
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    if (Math.abs(A[p][c]) < 1e-12 * scale) return null;
+    [A[c], A[p]] = [A[p], A[c]];
+    for (let r = 0; r < n; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let j = c; j <= n; j++) A[r][j] -= f * A[c][j]; }
   }
-  if (F.home && F.away) return { mh: F.home.mu, ma: F.away.mu, sh: F.home.sigma, sa: F.away.sigma, rho: 0, src: "komandų taškai" };
-  return null;
+  return A.map((r, i) => r[n] / r[i]);
+}
+function scoreModel(F) {
+  const keys = Object.keys(SCORE_ROWS).filter(k => F[k]);
+  const mean = wls(keys.map(k => [SCORE_ROWS[k].m, F[k].mu, F[k].n / F[k].sigma ** 2]));
+  if (!keys.length || !mean) return null;
+  // Rinkos su numatyta σ (viena linija) beveik nesveria; prielaidos sveria dar mažiau.
+  const vRows = keys.map(k => [SCORE_ROWS[k].v, F[k].sigma ** 2, (F[k].assumed ? 1e-3 : 1) * F[k].n / F[k].sigma ** 4]);
+  const wMax = Math.max(...vRows.map(r => r[2]));
+  vRows.push([[1, -1, 0], 0, 1e-6 * wMax], [[0, 0, 1], 0, 1e-6 * wMax]);
+  let [vh, va, c] = wls(vRows);
+  vh = Math.max(vh, 1); va = Math.max(va, 1);
+  const sh = Math.sqrt(vh), sa = Math.sqrt(va), rho = Math.max(-0.95, Math.min(0.95, c / (sh * sa)));
+  // Atskiri ρ įverčiai palyginimui: iš komandų taškų σ ir sumos arba handikapo σ.
+  let rho_tot = null, rho_hcp = null;
+  const real = k => F[k] && !F[k].assumed;
+  if (real("home") && real("away")) {
+    const vH = F.home.sigma ** 2, vA = F.away.sigma ** 2, d = 2 * Math.sqrt(vH * vA);
+    if (real("tot")) rho_tot = (F.tot.sigma ** 2 - vH - vA) / d;
+    if (real("hcp")) rho_hcp = (vH + vA - F.hcp.sigma ** 2) / d;
+  }
+  return { mh: mean[0], ma: mean[1], sh, sa, rho, rho_tot, rho_hcp, src: keys.map(k => SCORE_ROWS[k].name).join(" + ") };
 }
 
 // Visi sveiki rezultatai h : a per ±5σ su tikimybėmis (suma = 1).
